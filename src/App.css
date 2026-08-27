@@ -1,0 +1,15 @@
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #f8f9fa !important;
+  color: #333333 !important;
+  font-family: "Times New Roman", Times, serif;
+}
+
+#root {
+  background-color: #f8f9fa;
+  min-height: 100vh;
+}/* เพิ่มสไตล์เพิ่มเติมสำหรับพิมพ์รายงานและเส้นขอบ */
+@media print {
+  .no-print { display: none !important; }
+}
