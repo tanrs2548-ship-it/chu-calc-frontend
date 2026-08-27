@@ -87,7 +87,8 @@ function App() {
           if (l.type === 'point') return { type: "point", magnitude: Number(l.magnitude), x: Number(l.x) }
           return { type: "distributed", magnitude: Number(l.magnitude), start_x: Number(l.start_x), end_x: Number(l.end_x) }
         }),
-        ei: useEI ? calculatedEI : null
+        ei: useEI ? calculatedEI : null,
+        unit: forceUnit
       };
       
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
@@ -154,7 +155,7 @@ function App() {
   const [elements, setElements] = useState([])
   const [selectedNodeId, setSelectedNodeId] = useState(null)
   const [trussUnit, setTrussUnit] = useState('kN')
-  const [gridScale, setGridScale] = useState(2.0) 
+  const [gridScale, setGridScale] = useState(1.0) 
   const [trussSupports, setTrussSupports] = useState({})
   const [trussLoads, setTrussLoads] = useState({})
   const [trussUseEI, setTrussUseEI] = useState(false)
@@ -354,7 +355,7 @@ function App() {
   const [fE, setFE] = useState(200)    
   const [fI, setFI] = useState(5000)  
   const [fAnalysisResult, setFAnalysisResult] = useState(null)
-  const [fGridScale, setFGridScale] = useState(2.0)
+  const [fGridScale, setFGridScale] = useState(1.0)
   const [frameLocalData, setFrameLocalData] = useState({ steps: [], rxns: {} })
 
   const fSelectedNode = fNodes.find(n => n.id === fSelectedNodeId);
@@ -1093,7 +1094,7 @@ function App() {
                   )}
                   <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
                     <select value={gridScale} onChange={(e) => setGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
-                      {[1.5, 2, 2.5, 3, 3.5, 4].map(v => <option key={v} value={v}>{v}m</option>)}
+                      {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0].map(v => <option key={v} value={v}>{v.toFixed(1)}m</option>)}
                     </select>
                   </label>
                   <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Unit: 
@@ -1286,7 +1287,7 @@ function App() {
                   </label>
                   <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
                     <select value={fGridScale} onChange={(e) => setFGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
-                      {[1.5, 2, 2.5, 3, 3.5, 4].map(v => <option key={v} value={v}>{v}m</option>)}
+                      {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0].map(v => <option key={v} value={v}>{v.toFixed(1)}m</option>)}
                     </select>
                   </label>
                 </div>
