@@ -1105,106 +1105,110 @@ function App() {
                 </div>
               </div>
 
-              <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff', overflow: 'auto' }}>
-                <defs>
-                  <pattern id="gridT" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#f0ebe6" strokeWidth="1"/></pattern>
-                  <marker id="arrowT" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.primary} /></marker>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#gridT)" />
-                {renderDimensions(nodes, gridScale)}
-                {elements.map(el => {
-                  const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
-                  if (!n1 || !n2) return null;
-                  return <line key={el.id} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="4" strokeLinecap="round" />
-                })}
-                {Object.entries(trussSupports).map(([nId, supData]) => {
-                  const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                  return (
-                    <g key={`sup-${nId}`}>
-                      {supData.type === 'pin' ? <polygon points={`${node.x},${node.y+6} ${node.x-12},${node.y+25} ${node.x+12},${node.y+25}`} fill={theme.primary} /> 
-                      : supData.type === 'fixed' ? <rect x={node.x - 15} y={node.y+5} width="30" height="12" fill={theme.textMain} /> 
-                      : supData.type === 'roller' ? <circle cx={node.x} cy={node.y+10} r="8" fill="none" stroke={theme.primary} strokeWidth="2.5" /> : null}
+              <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#fff', display: 'flex', justifyContent: 'center' }}>
+                <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
+                  <defs>
+                    <pattern id="gridT" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#f0ebe6" strokeWidth="1"/></pattern>
+                    <marker id="arrowT" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.primary} /></marker>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#gridT)" />
+                  {renderDimensions(nodes, gridScale)}
+                  {elements.map(el => {
+                    const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+                    if (!n1 || !n2) return null;
+                    return <line key={el.id} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="4" strokeLinecap="round" />
+                  })}
+                  {Object.entries(trussSupports).map(([nId, supData]) => {
+                    const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                    return (
+                      <g key={`sup-${nId}`}>
+                        {supData.type === 'pin' ? <polygon points={`${node.x},${node.y+6} ${node.x-12},${node.y+25} ${node.x+12},${node.y+25}`} fill={theme.primary} /> 
+                        : supData.type === 'fixed' ? <rect x={node.x - 15} y={node.y+5} width="30" height="12" fill={theme.textMain} /> 
+                        : supData.type === 'roller' ? <circle cx={node.x} cy={node.y+10} r="8" fill="none" stroke={theme.primary} strokeWidth="2.5" /> : null}
+                      </g>
+                    )
+                  })}
+                  {Object.entries(trussLoads).map(([nId, force]) => {
+                    const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                    return (
+                      <g key={`load-${nId}`}>
+                        {Number(force.fy) !== 0 && (
+                          <>
+                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowT)" />
+                            <text x={node.x + 12} y={node.y - 25} fill={theme.primary} fontSize="13" fontWeight="bold">{force.fy} {trussUnit}</text>
+                          </>
+                        )}
+                      </g>
+                    )
+                  })}
+                  {nodes.map(node => (
+                    <g key={node.id} style={{ cursor: 'pointer' }}>
+                      <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleTrussNodeClick(e, node)} />
+                      <circle cx={node.x} cy={node.y} r={selectedNodeId === node.id ? 9 : 6} fill={selectedNodeId === node.id ? theme.primary : theme.textMain} stroke="#fff" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
+                      <text x={node.x + 10} y={node.y - 10} fill={theme.textMain} fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
                     </g>
-                  )
-                })}
-                {Object.entries(trussLoads).map(([nId, force]) => {
-                  const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                  return (
-                    <g key={`load-${nId}`}>
-                      {Number(force.fy) !== 0 && (
-                        <>
-                          <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowT)" />
-                          <text x={node.x + 12} y={node.y - 25} fill={theme.primary} fontSize="13" fontWeight="bold">{force.fy} {trussUnit}</text>
-                        </>
-                      )}
-                    </g>
-                  )
-                })}
-                {nodes.map(node => (
-                  <g key={node.id} style={{ cursor: 'pointer' }}>
-                    <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleTrussNodeClick(e, node)} />
-                    <circle cx={node.x} cy={node.y} r={selectedNodeId === node.id ? 9 : 6} fill={selectedNodeId === node.id ? theme.primary : theme.textMain} stroke="#fff" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
-                    <text x={node.x + 10} y={node.y - 10} fill={theme.textMain} fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
-                  </g>
-                ))}
-              </svg>
+                  ))}
+                </svg>
+              </div>
             </div>
 
             {nodes.length > 0 && (
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fcfbfa' }}>
                 <h3 style={{ margin: '0 0 10px 0', color: theme.primary, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
-                <svg viewBox="0 0 1400 500" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
-                  <rect width="100%" height="100%" fill="#ffffff" />
-                  {elements.map(el => {
-                    const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
-                    if (!n1 || !n2) return null;
-                    return <line key={`t-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
-                  })}
-                  {Object.entries(trussSupports).map(([nId, supData]) => {
-                    const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                    const rxn = trussLocalData.rxns[node.id];
-                    const hasRun = Object.keys(trussLocalData.rxns).length > 0;
-                    const fyText = hasRun ? (rxn ? Math.abs(rxn.fy).toFixed(2) : "0.00") : `R_${node.name}y`;
-                    const fxText = hasRun ? (rxn ? Math.abs(rxn.fx).toFixed(2) : "0.00") : `R_${node.name}x`;
-                    const isFyPos = hasRun ? (rxn && rxn.fy >= 0) : true;
-                    const isFxPos = hasRun ? (rxn && rxn.fx >= 0) : true;
+                <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#fff', overflow: 'auto' }}>
+                  <svg viewBox="0 0 1400 500" style={{ width: '100%', maxWidth: '900px', height: 'auto', backgroundColor: '#fff' }}>
+                    <rect width="100%" height="100%" fill="#ffffff" />
+                    {elements.map(el => {
+                      const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+                      if (!n1 || !n2) return null;
+                      return <line key={`t-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
+                    })}
+                    {Object.entries(trussSupports).map(([nId, supData]) => {
+                      const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                      const rxn = trussLocalData.rxns[node.id];
+                      const hasRun = Object.keys(trussLocalData.rxns).length > 0;
+                      const fyText = hasRun ? (rxn ? Math.abs(rxn.fy).toFixed(2) : "0.00") : `R_${node.name}y`;
+                      const fxText = hasRun ? (rxn ? Math.abs(rxn.fx).toFixed(2) : "0.00") : `R_${node.name}x`;
+                      const isFyPos = hasRun ? (rxn && rxn.fy >= 0) : true;
+                      const isFxPos = hasRun ? (rxn && rxn.fx >= 0) : true;
 
-                    return (
-                      <g key={`t-fbd-sup-${nId}`}>
-                        {supData.type !== 'free' && (
-                          <>
-                            <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke="#0056b3" strokeWidth="2.5" markerEnd="url(#arrowT)" />
-                            <text x={node.x + 12} y={isFyPos ? node.y + 30 : node.y - 30} fontSize="12" fill="#0056b3" fontWeight="bold">{fyText}</text>
-                          </>
-                        )}
-                        {(supData.type === 'pin' || supData.type === 'fixed') && (
-                          <>
-                            <line x1={isFxPos ? node.x - 45 : node.x + 45} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke="#0056b3" strokeWidth="2.5" markerEnd="url(#arrowT)" />
-                            <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill="#0056b3" fontWeight="bold">{fxText}</text>
-                          </>
-                        )}
-                        {supData.type === 'pin' && <polygon points={`${node.x},${node.y+5} ${node.x-10},${node.y+15} ${node.x+10},${node.y+15}`} fill={theme.primary} />}
-                        {supData.type === 'roller' && <circle cx={node.x} cy={node.y+10} r={7} fill="none" stroke={theme.primary} strokeWidth="2.5" />}
-                        {supData.type === 'fixed' && <rect x={node.x - 12} y={node.y+5} width="24" height="10" fill={theme.textMain} />}
+                      return (
+                        <g key={`t-fbd-sup-${nId}`}>
+                          {supData.type !== 'free' && (
+                            <>
+                              <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke="#0056b3" strokeWidth="2.5" markerEnd="url(#arrowT)" />
+                              <text x={node.x + 12} y={isFyPos ? node.y + 30 : node.y - 30} fontSize="12" fill="#0056b3" fontWeight="bold">{fyText}</text>
+                            </>
+                          )}
+                          {(supData.type === 'pin' || supData.type === 'fixed') && (
+                            <>
+                              <line x1={isFxPos ? node.x - 45 : node.x + 45} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke="#0056b3" strokeWidth="2.5" markerEnd="url(#arrowT)" />
+                              <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill="#0056b3" fontWeight="bold">{fxText}</text>
+                            </>
+                          )}
+                          {supData.type === 'pin' && <polygon points={`${node.x},${node.y+5} ${node.x-10},${node.y+15} ${node.x+10},${node.y+15}`} fill={theme.primary} />}
+                          {supData.type === 'roller' && <circle cx={node.x} cy={node.y+10} r={7} fill="none" stroke={theme.primary} strokeWidth="2.5" />}
+                          {supData.type === 'fixed' && <rect x={node.x - 12} y={node.y+5} width="24" height="10" fill={theme.textMain} />}
+                        </g>
+                      );
+                    })}
+                    {Object.entries(trussLoads).map(([nId, force]) => {
+                      const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                      return Number(force.fy) !== 0 && (
+                        <g key={`t-fbd-load-${nId}`}>
+                          <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowT)" />
+                          <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.primary} fontWeight="bold">{force.fy} {trussUnit}</text>
+                        </g>
+                      );
+                    })}
+                    {nodes.map(node => (
+                      <g key={`t-fbd-n-${node.id}`}>
+                        <circle cx={node.x} cy={node.y} r={5} fill={theme.textMain} />
+                        <text x={node.x + 8} y={node.y - 8} fontSize="12" fill={theme.textMain} fontWeight="bold">{node.name}</text>
                       </g>
-                    );
-                  })}
-                  {Object.entries(trussLoads).map(([nId, force]) => {
-                    const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                    return Number(force.fy) !== 0 && (
-                      <g key={`t-fbd-load-${nId}`}>
-                        <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowT)" />
-                        <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.primary} fontWeight="bold">{force.fy} {trussUnit}</text>
-                      </g>
-                    );
-                  })}
-                  {nodes.map(node => (
-                    <g key={`t-fbd-n-${node.id}`}>
-                      <circle cx={node.x} cy={node.y} r={5} fill={theme.textMain} />
-                      <text x={node.x + 8} y={node.y - 8} fontSize="12" fill={theme.textMain} fontWeight="bold">{node.name}</text>
-                    </g>
-                  ))}
-                </svg>
+                    ))}
+                  </svg>
+                </div>
               </div>
             )}
 
@@ -1293,119 +1297,23 @@ function App() {
                 </div>
               </div>
 
-              <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff', overflow: 'auto' }}>
-                <defs>
-                  <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#f0ebe6" strokeWidth="1"/></pattern>
-                  <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.textMain} /></marker>
-                  <marker id="arrowFramePoint" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.primary} /></marker>
-                </defs>
-                <rect width="100%" height="100%" fill="url(#gridF)" />
-                {renderDimensions(fNodes, fGridScale)}
-                
-                {fElements.map(el => {
-                  const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
-                  if (!n1 || !n2) return null;
-                  const distLoad = fDistLoads[el.id];
-                  const pointLoad = fPointLoadsOnElement[el.id];
-                  const isSelected = fSelectedElementId === el.id;
-
-                  let plX = n1.x, plY = n1.y;
-                  if (pointLoad && pointLoad.x !== undefined) {
-                    const totalLen = Math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2);
-                    const actualLenM = totalLen / PIXELS_PER_GRID * fGridScale;
-                    const ratio = actualLenM > 0 ? Math.min(Math.max(pointLoad.x / actualLenM, 0), 1) : 0;
-                    plX = n1.x + (n2.x - n1.x) * ratio;
-                    plY = n1.y + (n2.y - n1.y) * ratio;
-                  }
-
-                  return (
-                    <g key={el.id} onClick={(e) => handleFrameElementClick(e, el)} style={{ cursor: 'pointer' }}>
-                      <line x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={isSelected ? theme.primary : theme.memberGray} strokeWidth={isSelected ? "6" : "4"} strokeLinecap="round" />
-                      {renderDistributedLoadArrows(n1.x, n1.y, n2.x, n2.y, distLoad?.wy)}
-                      {distLoad?.wx && distLoad.wx !== 0 && (
-                        <text x={(n1.x + n2.x)/2} y={(n1.y + n2.y)/2 - 15} fill={theme.textMain} fontSize="13" fontWeight="bold" textAnchor="middle">wx = {distLoad.wx} {fForceUnit}/m</text>
-                      )}
-                      {pointLoad && (
-                        <>
-                          {pointLoad.py && pointLoad.py !== 0 && (
-                            <g>
-                              <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
-                              <text x={plX + 12} y={plY - 20} fill={theme.primary} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
-                            </g>
-                          )}
-                          {pointLoad.px && pointLoad.px !== 0 && (
-                            <g>
-                              <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
-                              <text x={plX - 25} y={plY - 10} fill={theme.primary} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
-                            </g>
-                          )}
-                        </>
-                      )}
-                    </g>
-                  )
-                })}
-
-                {Object.entries(fSupports).map(([nId, supData]) => {
-                  const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                  return (
-                    <g key={`sup-${nId}`}>
-                      {supData.type === 'pin' ? <polygon points={`${node.x},${node.y+6} ${node.x-12},${node.y+25} ${node.x+12},${node.y+25}`} fill={theme.primary} /> 
-                      : supData.type === 'fixed' ? <rect x={node.x - 15} y={node.y+5} width="30" height="12" fill={theme.textMain} /> 
-                      : supData.type === 'roller' ? <circle cx={node.x} cy={node.y+10} r="8" fill="none" stroke={theme.primary} strokeWidth="2.5" /> : null}
-                    </g>
-                  )
-                })}
-
-                {Object.entries(fLoads).map(([nId, force]) => {
-                  const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                  return (
-                    <g key={`load-${nId}`}>
-                      {Number(force.fy) !== 0 && (
-                        <>
-                          <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
-                          <text x={node.x + 12} y={node.y} fill={theme.primary} fontSize="13" fontWeight="bold">Fy = {force.fy} {fForceUnit}</text>
-                        </>
-                      )}
-                      {Number(force.fx) !== 0 && (
-                        <>
-                          <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
-                          <text x={node.x} y={node.y - 15} fill={theme.primary} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
-                        </>
-                      )}
-                      {Number(force.mz) !== 0 && (
-                        <text x={node.x + 15} y={node.y + 15} fill={theme.primary} fontSize="13" fontWeight="bold">M = {force.mz} {fForceUnit}.m</text>
-                      )}
-                    </g>
-                  )
-                })}
-
-                {fNodes.map(node => (
-                  <g key={node.id} style={{ cursor: 'pointer' }}>
-                    <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleFrameNodeClick(e, node)} />
-                    <circle cx={node.x} cy={node.y} r={fSelectedNodeId === node.id ? 9 : 6} fill={fSelectedNodeId === node.id ? theme.primary : theme.textMain} stroke="#fff" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
-                    <text x={node.x + 10} y={node.y - 10} fill={theme.textMain} fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
-                  </g>
-                ))}
-              </svg>
-            </div>
-
-            {fNodes.length > 0 && (
-              <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fcfbfa' }}>
-                <h3 style={{ margin: '0 0 10px 0', color: theme.primary, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
-                <svg viewBox="0 0 1400 500" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
-                  <rect width="100%" height="100%" fill="#ffffff" />
-                  {fElements.map(el => {
-                    const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
-                    if (!n1 || !n2) return null;
-                    return <line key={`f-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
-                  })}
+              <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#fff', display: 'flex', justifyContent: 'center' }}>
+                <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
+                  <defs>
+                    <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#f0ebe6" strokeWidth="1"/></pattern>
+                    <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.textMain} /></marker>
+                    <marker id="arrowFramePoint" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.primary} /></marker>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#gridF)" />
+                  {renderDimensions(fNodes, fGridScale)}
                   
                   {fElements.map(el => {
                     const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
                     if (!n1 || !n2) return null;
                     const distLoad = fDistLoads[el.id];
                     const pointLoad = fPointLoadsOnElement[el.id];
-                    
+                    const isSelected = fSelectedElementId === el.id;
+
                     let plX = n1.x, plY = n1.y;
                     if (pointLoad && pointLoad.x !== undefined) {
                       const totalLen = Math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2);
@@ -1414,9 +1322,10 @@ function App() {
                       plX = n1.x + (n2.x - n1.x) * ratio;
                       plY = n1.y + (n2.y - n1.y) * ratio;
                     }
-                    
+
                     return (
-                      <g key={`fbd-loads-${el.id}`}>
+                      <g key={el.id} onClick={(e) => handleFrameElementClick(e, el)} style={{ cursor: 'pointer' }}>
+                        <line x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={isSelected ? theme.primary : theme.memberGray} strokeWidth={isSelected ? "6" : "4"} strokeLinecap="round" />
                         {renderDistributedLoadArrows(n1.x, n1.y, n2.x, n2.y, distLoad?.wy)}
                         {distLoad?.wx && distLoad.wx !== 0 && (
                           <text x={(n1.x + n2.x)/2} y={(n1.y + n2.y)/2 - 15} fill={theme.textMain} fontSize="13" fontWeight="bold" textAnchor="middle">wx = {distLoad.wx} {fForceUnit}/m</text>
@@ -1443,57 +1352,156 @@ function App() {
 
                   {Object.entries(fSupports).map(([nId, supData]) => {
                     const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                    const rxn = frameLocalData.rxns[node.id];
-                    const hasRun = Object.keys(frameLocalData.rxns).length > 0;
-                    
-                    const fyText = hasRun ? (rxn ? Math.abs(rxn.fy).toFixed(2) : "0.00") : `R_${node.name}y`;
-                    const fxText = hasRun ? (rxn ? Math.abs(rxn.fx).toFixed(2) : "0.00") : `R_${node.name}x`;
-                    const mzText = hasRun ? (rxn ? Math.abs(rxn.mz).toFixed(2) : "0.00") : `M_${node.name}`;
-                    
-                    const isFyPos = hasRun ? (rxn && rxn.fy >= 0) : true;
-                    const isFxPos = hasRun ? (rxn && rxn.fx >= 0) : true;
-
                     return (
-                      <g key={`f-fbd-sup-${nId}`}>
-                        {(supData.type !== 'free') && (
-                          <>
-                            <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke="#0056b3" strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
-                            <text x={node.x + 12} y={isFyPos ? node.y + 25 : node.y - 25} fontSize="11" fill="#0056b3" fontWeight="bold">{fyText}</text>
-                          </>
-                        )}
-                        {(supData.type === 'pin' || supData.type === 'fixed') && (
-                          <>
-                            <line x1={isFxPos ? node.x - 40 : node.x + 40} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke="#0056b3" strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
-                            <text x={isFxPos ? node.x - 45 : node.x + 50} y={node.y - 8} fontSize="11" fill="#0056b3" fontWeight="bold">{fxText}</text>
-                          </>
-                        )}
-                        {supData.type === 'fixed' && (
-                          <text x={node.x + 20} y={node.y - 15} fontSize="11" fill="#0056b3" fontWeight="bold">{mzText}</text>
-                        )}
-                        {supData.type === 'pin' && <polygon points={`${node.x},${node.y+5} ${node.x-10},${node.y+15} ${node.x+10},${node.y+15}`} fill={theme.primary} />}
-                        {supData.type === 'fixed' && <rect x={node.x - 12} y={node.y+5} width="24" height="10" fill={theme.textMain} />}
-                        {supData.type === 'roller' && <circle cx={node.x} cy={node.y+10} r={7} fill="none" stroke={theme.primary} strokeWidth="2.5" />}
+                      <g key={`sup-${nId}`}>
+                        {supData.type === 'pin' ? <polygon points={`${node.x},${node.y+6} ${node.x-12},${node.y+25} ${node.x+12},${node.y+25}`} fill={theme.primary} /> 
+                        : supData.type === 'fixed' ? <rect x={node.x - 15} y={node.y+5} width="30" height="12" fill={theme.textMain} /> 
+                        : supData.type === 'roller' ? <circle cx={node.x} cy={node.y+10} r="8" fill="none" stroke={theme.primary} strokeWidth="2.5" /> : null}
                       </g>
-                    );
+                    )
                   })}
-                  
+
                   {Object.entries(fLoads).map(([nId, force]) => {
                     const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                    return Number(force.fy) !== 0 && (
-                      <g key={`f-fbd-nload-${nId}`}>
-                        <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
-                        <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.primary} fontWeight="bold">{force.fy} {fForceUnit}</text>
+                    return (
+                      <g key={`load-${nId}`}>
+                        {Number(force.fy) !== 0 && (
+                          <>
+                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                            <text x={node.x + 12} y={node.y} fill={theme.primary} fontSize="13" fontWeight="bold">Fy = {force.fy} {fForceUnit}</text>
+                          </>
+                        )}
+                        {Number(force.fx) !== 0 && (
+                          <>
+                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                            <text x={node.x} y={node.y - 15} fill={theme.primary} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
+                          </>
+                        )}
+                        {Number(force.mz) !== 0 && (
+                          <text x={node.x + 15} y={node.y + 15} fill={theme.primary} fontSize="13" fontWeight="bold">M = {force.mz} {fForceUnit}.m</text>
+                        )}
                       </g>
-                    );
+                    )
                   })}
-                  
+
                   {fNodes.map(node => (
-                    <g key={`f-fbd-n-${node.id}`}>
-                      <circle cx={node.x} cy={node.y} r={5} fill={theme.textMain} />
-                      <text x={node.x + 8} y={node.y - 8} fontSize="12" fill={theme.textMain} fontWeight="bold">{node.name}</text>
+                    <g key={node.id} style={{ cursor: 'pointer' }}>
+                      <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleFrameNodeClick(e, node)} />
+                      <circle cx={node.x} cy={node.y} r={fSelectedNodeId === node.id ? 9 : 6} fill={fSelectedNodeId === node.id ? theme.primary : theme.textMain} stroke="#fff" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
+                      <text x={node.x + 10} y={node.y - 10} fill={theme.textMain} fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
                     </g>
                   ))}
                 </svg>
+              </div>
+            </div>
+
+            {fNodes.length > 0 && (
+              <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fcfbfa' }}>
+                <h3 style={{ margin: '0 0 10px 0', color: theme.primary, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
+                <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#fff', overflow: 'auto' }}>
+                  <svg viewBox="0 0 1400 500" style={{ width: '100%', maxWidth: '900px', height: 'auto', backgroundColor: '#fff' }}>
+                    <rect width="100%" height="100%" fill="#ffffff" />
+                    {fElements.map(el => {
+                      const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
+                      if (!n1 || !n2) return null;
+                      return <line key={`f-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
+                    })}
+                    
+                    {fElements.map(el => {
+                      const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
+                      if (!n1 || !n2) return null;
+                      const distLoad = fDistLoads[el.id];
+                      const pointLoad = fPointLoadsOnElement[el.id];
+                      
+                      let plX = n1.x, plY = n1.y;
+                      if (pointLoad && pointLoad.x !== undefined) {
+                        const totalLen = Math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2);
+                        const actualLenM = totalLen / PIXELS_PER_GRID * fGridScale;
+                        const ratio = actualLenM > 0 ? Math.min(Math.max(pointLoad.x / actualLenM, 0), 1) : 0;
+                        plX = n1.x + (n2.x - n1.x) * ratio;
+                        plY = n1.y + (n2.y - n1.y) * ratio;
+                      }
+                      
+                      return (
+                        <g key={`fbd-loads-${el.id}`}>
+                          {renderDistributedLoadArrows(n1.x, n1.y, n2.x, n2.y, distLoad?.wy)}
+                          {distLoad?.wx && distLoad.wx !== 0 && (
+                            <text x={(n1.x + n2.x)/2} y={(n1.y + n2.y)/2 - 15} fill={theme.textMain} fontSize="13" fontWeight="bold" textAnchor="middle">wx = {distLoad.wx} {fForceUnit}/m</text>
+                          )}
+                          {pointLoad && (
+                            <>
+                              {pointLoad.py && pointLoad.py !== 0 && (
+                                <g>
+                                  <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                                  <text x={plX + 12} y={plY - 20} fill={theme.primary} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
+                                </g>
+                              )}
+                              {pointLoad.px && pointLoad.px !== 0 && (
+                                <g>
+                                  <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                                  <text x={plX - 25} y={plY - 10} fill={theme.primary} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
+                                </g>
+                              )}
+                            </>
+                          )}
+                        </g>
+                      )
+                    })}
+
+                    {Object.entries(fSupports).map(([nId, supData]) => {
+                      const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                      const rxn = frameLocalData.rxns[node.id];
+                      const hasRun = Object.keys(frameLocalData.rxns).length > 0;
+                      
+                      const fyText = hasRun ? (rxn ? Math.abs(rxn.fy).toFixed(2) : "0.00") : `R_${node.name}y`;
+                      const fxText = hasRun ? (rxn ? Math.abs(rxn.fx).toFixed(2) : "0.00") : `R_${node.name}x`;
+                      const mzText = hasRun ? (rxn ? Math.abs(rxn.mz).toFixed(2) : "0.00") : `M_${node.name}`;
+                      
+                      const isFyPos = hasRun ? (rxn && rxn.fy >= 0) : true;
+                      const isFxPos = hasRun ? (rxn && rxn.fx >= 0) : true;
+
+                      return (
+                        <g key={`f-fbd-sup-${nId}`}>
+                          {(supData.type !== 'free') && (
+                            <>
+                              <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke="#0056b3" strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                              <text x={node.x + 12} y={isFyPos ? node.y + 25 : node.y - 25} fontSize="11" fill="#0056b3" fontWeight="bold">{fyText}</text>
+                            </>
+                          )}
+                          {(supData.type === 'pin' || supData.type === 'fixed') && (
+                            <>
+                              <line x1={isFxPos ? node.x - 40 : node.x + 40} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke="#0056b3" strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                              <text x={isFxPos ? node.x - 45 : node.x + 50} y={node.y - 8} fontSize="11" fill="#0056b3" fontWeight="bold">{fxText}</text>
+                            </>
+                          )}
+                          {supData.type === 'fixed' && (
+                            <text x={node.x + 20} y={node.y - 15} fontSize="11" fill="#0056b3" fontWeight="bold">{mzText}</text>
+                          )}
+                          {supData.type === 'pin' && <polygon points={`${node.x},${node.y+5} ${node.x-10},${node.y+15} ${node.x+10},${node.y+15}`} fill={theme.primary} />}
+                          {supData.type === 'fixed' && <rect x={node.x - 12} y={node.y+5} width="24" height="10" fill={theme.textMain} />}
+                          {supData.type === 'roller' && <circle cx={node.x} cy={node.y+10} r={7} fill="none" stroke={theme.primary} strokeWidth="2.5" />}
+                        </g>
+                      );
+                    })}
+                    
+                    {Object.entries(fLoads).map(([nId, force]) => {
+                      const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                      return Number(force.fy) !== 0 && (
+                        <g key={`f-fbd-nload-${nId}`}>
+                          <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.primary} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                          <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.primary} fontWeight="bold">{force.fy} {fForceUnit}</text>
+                        </g>
+                      );
+                    })}
+                    
+                    {fNodes.map(node => (
+                      <g key={`f-fbd-n-${node.id}`}>
+                        <circle cx={node.x} cy={node.y} r={5} fill={theme.textMain} />
+                        <text x={node.x + 8} y={node.y - 8} fontSize="12" fill={theme.textMain} fontWeight="bold">{node.name}</text>
+                      </g>
+                    ))}
+                  </svg>
+                </div>
               </div>
             )}
 
