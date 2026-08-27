@@ -90,7 +90,7 @@ function App() {
         ei: useEI ? calculatedEI : null
       };
       
-      const response = await axios.post('http://localhost:8000/api/analyze', payload);
+      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
       const data = response.data.diagram_data;
       const supportXPositions = beamSupports.filter(s => s.type !== 'free').map(s => Number(s.x));
 
@@ -338,7 +338,7 @@ function App() {
         unit: trussUnit,
         ei: trussUseEI ? calculatedEI : null
       };
-      const response = await axios.post('http://localhost:8000/api/analyze-truss', payload);
+      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
       setTrussAnalysisResult(response.data);
     } catch (error) {
       console.error("Truss Analysis Error:", error);
@@ -359,7 +359,7 @@ function App() {
   const [fPointLoadsOnElement, setFPointLoadsOnElement] = useState({})
   const [fForceUnit, setFForceUnit] = useState('kN')
   const [fUseEI, setFUseEI] = useState(true)
-  const [fE, setFE] = useState(200)   
+  const [fE, setFE] = useState(200)    
   const [fI, setFI] = useState(5000)  
   const [fAnalysisResult, setFAnalysisResult] = useState(null)
   const [fGridScale, setFGridScale] = useState(1.0)
@@ -610,7 +610,7 @@ function App() {
         unit: fForceUnit,
         ei: fUseEI ? calculatedEI : null
       };
-      const response = await axios.post('http://localhost:8000/api/analyze-frame', payload);
+      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-frame', payload);
       setFAnalysisResult(response.data);
     } catch (err) {
       console.error("Frame Analysis Error:", err);
@@ -1162,13 +1162,11 @@ function App() {
                 <h3 style={{ margin: '0 0 10px 0', color: theme.primary, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
                 <svg viewBox="0 0 1000 350" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                   <rect width="100%" height="100%" fill="#ffffff" />
-                  {/* วาดสมาชิก Member */}
                   {elements.map(el => {
                     const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
                     if (!n1 || !n2) return null;
                     return <line key={`t-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
                   })}
-                  {/* วาด Support บน FBD พร้อมลูกศรแบบทิศทางสมจริง */}
                   {Object.entries(trussSupports).map(([nId, supData]) => {
                     const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     const rxn = trussLocalData.rxns[node.id];
@@ -1198,7 +1196,6 @@ function App() {
                       </g>
                     );
                   })}
-                  {/* วาด Load บน FBD */}
                   {Object.entries(trussLoads).map(([nId, force]) => {
                     const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     return Number(force.fy) !== 0 && (
@@ -1208,7 +1205,6 @@ function App() {
                       </g>
                     );
                   })}
-                  {/* วาด Node จุดต่อ */}
                   {nodes.map(node => (
                     <g key={`t-fbd-n-${node.id}`}>
                       <circle cx={node.x} cy={node.y} r={5} fill={theme.textMain} />
@@ -1405,14 +1401,12 @@ function App() {
                 <h3 style={{ margin: '0 0 10px 0', color: theme.primary, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
                 <svg viewBox="0 0 1000 350" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                   <rect width="100%" height="100%" fill="#ffffff" />
-                  {/* วาดสมาชิก Member */}
                   {fElements.map(el => {
                     const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
                     if (!n1 || !n2) return null;
                     return <line key={`f-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
                   })}
                   
-                  {/* วาด Point Load & UDL บน Member */}
                   {fElements.map(el => {
                     const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
                     if (!n1 || !n2) return null;
@@ -1454,7 +1448,6 @@ function App() {
                     )
                   })}
 
-                  {/* วาด Support และ Reaction Arrows ที่สมจริง */}
                   {Object.entries(fSupports).map(([nId, supData]) => {
                     const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     const rxn = frameLocalData.rxns[node.id];
@@ -1491,7 +1484,6 @@ function App() {
                     );
                   })}
                   
-                  {/* วาด Nodal Load บน FBD */}
                   {Object.entries(fLoads).map(([nId, force]) => {
                     const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     return Number(force.fy) !== 0 && (
@@ -1502,7 +1494,6 @@ function App() {
                     );
                   })}
                   
-                  {/* วาด Node จุดต่อ */}
                   {fNodes.map(node => (
                     <g key={`f-fbd-n-${node.id}`}>
                       <circle cx={node.x} cy={node.y} r={5} fill={theme.textMain} />
