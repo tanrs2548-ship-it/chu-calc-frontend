@@ -154,7 +154,7 @@ function App() {
   const [elements, setElements] = useState([])
   const [selectedNodeId, setSelectedNodeId] = useState(null)
   const [trussUnit, setTrussUnit] = useState('kN')
-  const [gridScale, setGridScale] = useState(1.0) 
+  const [gridScale, setGridScale] = useState(2.0) 
   const [trussSupports, setTrussSupports] = useState({})
   const [trussLoads, setTrussLoads] = useState({})
   const [trussUseEI, setTrussUseEI] = useState(false)
@@ -234,14 +234,6 @@ function App() {
       setTrussLoads(prev => { const nl = {...prev}; delete nl[lastNode.id]; return nl; });
       if (selectedNodeId === lastNode.id) setSelectedNodeId(null);
     }
-  }
-
-  const handleDeleteNode = (nodeId) => {
-    setNodes(nodes.filter(n => n.id !== nodeId));
-    setElements(elements.filter(el => el.n1 !== nodeId && el.n2 !== nodeId));
-    setTrussSupports(prev => { const ns = {...prev}; delete ns[nodeId]; return ns; });
-    setTrussLoads(prev => { const nl = {...prev}; delete nl[nodeId]; return nl; });
-    setSelectedNodeId(null);
   }
 
   const clearTrussCanvas = () => { setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
@@ -362,7 +354,7 @@ function App() {
   const [fE, setFE] = useState(200)    
   const [fI, setFI] = useState(5000)  
   const [fAnalysisResult, setFAnalysisResult] = useState(null)
-  const [fGridScale, setFGridScale] = useState(1.0)
+  const [fGridScale, setFGridScale] = useState(2.0)
   const [frameLocalData, setFrameLocalData] = useState({ steps: [], rxns: {} })
 
   const fSelectedNode = fNodes.find(n => n.id === fSelectedNodeId);
@@ -1101,7 +1093,7 @@ function App() {
                   )}
                   <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
                     <select value={gridScale} onChange={(e) => setGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
-                      {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0].map(v => <option key={v} value={v}>{v}m</option>)}
+                      {[1.5, 2, 2.5, 3, 3.5, 4].map(v => <option key={v} value={v}>{v}m</option>)}
                     </select>
                   </label>
                   <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Unit: 
@@ -1112,7 +1104,7 @@ function App() {
                 </div>
               </div>
 
-              <svg width="1000" height="380" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
+              <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff', overflow: 'auto' }}>
                 <defs>
                   <pattern id="gridT" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#f0ebe6" strokeWidth="1"/></pattern>
                   <marker id="arrowT" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.primary} /></marker>
@@ -1160,7 +1152,7 @@ function App() {
             {nodes.length > 0 && (
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fcfbfa' }}>
                 <h3 style={{ margin: '0 0 10px 0', color: theme.primary, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
-                <svg viewBox="0 0 1000 350" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
+                <svg viewBox="0 0 1400 500" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                   <rect width="100%" height="100%" fill="#ffffff" />
                   {elements.map(el => {
                     const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
@@ -1294,13 +1286,13 @@ function App() {
                   </label>
                   <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
                     <select value={fGridScale} onChange={(e) => setFGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
-                      {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0].map(v => <option key={v} value={v}>{v}m</option>)}
+                      {[1.5, 2, 2.5, 3, 3.5, 4].map(v => <option key={v} value={v}>{v}m</option>)}
                     </select>
                   </label>
                 </div>
               </div>
 
-              <svg width="1000" height="380" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
+              <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff', overflow: 'auto' }}>
                 <defs>
                   <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#f0ebe6" strokeWidth="1"/></pattern>
                   <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.textMain} /></marker>
@@ -1399,7 +1391,7 @@ function App() {
             {fNodes.length > 0 && (
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fcfbfa' }}>
                 <h3 style={{ margin: '0 0 10px 0', color: theme.primary, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
-                <svg viewBox="0 0 1000 350" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
+                <svg viewBox="0 0 1400 500" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                   <rect width="100%" height="100%" fill="#ffffff" />
                   {fElements.map(el => {
                     const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
