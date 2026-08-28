@@ -260,14 +260,15 @@ function App() {
 
   const clearTrussCanvas = () => { saveTrussState(); setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
 
-  // เพิ่มฟังก์ชันคำนวณขนาดโครงถักที่เคยหายไป
+  // ประกาศฟังก์ชันนี้ไว้ชัดเจนเพื่อป้องกัน ReferenceError
   const calculateTrussDimensions = () => {
     if (!nodes || nodes.length === 0) return { totalWidth: 0, totalHeight: 0 };
     const minX = Math.min(...nodes.map(n => n.x)), maxX = Math.max(...nodes.map(n => n.x));
     const minY = Math.min(...nodes.map(n => n.y)), maxY = Math.max(...nodes.map(n => n.y));
-    const totalWidth = ((maxX - minX) / PIXELS_PER_GRID) * gridScale;
-    const totalHeight = ((maxY - minY) / PIXELS_PER_GRID) * gridScale;
-    return { totalWidth, totalHeight };
+    return {
+      totalWidth: ((maxX - minX) / PIXELS_PER_GRID) * gridScale,
+      totalHeight: ((maxY - minY) / PIXELS_PER_GRID) * gridScale
+    };
   };
 
   const trussDims = calculateTrussDimensions();
