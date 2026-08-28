@@ -7,16 +7,15 @@ function App() {
   const [activeTab, setActiveTab] = useState('beam')
   const PIXELS_PER_GRID = 50
 
-  // 1. เปลี่ยน Theme เป็น ขาว-ดำ-ฟ้าอ่อน
   const theme = {
-    bg: '#F0F8FF',         // ฟ้าอ่อน (Alice Blue) สำหรับพื้นหลังแอป
-    cardBg: '#FFFFFF',     // ขาว สำหรับกระดาษรายงาน
-    textMain: '#000000',   // ดำ สำหรับตัวอักษรและเส้นโครงสร้างหลัก
-    primary: '#000000',    // ดำ สำหรับปุ่มหลัก
-    accent: '#87CEFA',     // ฟ้าอ่อน (Light Sky Blue) สำหรับไฮไลต์และปุ่มรอง
-    border: '#B0C4DE',     // สีขอบฟ้าเทาอ่อนๆ
-    memberGray: '#000000', // เส้นชิ้นส่วนสีดำ
-    lightGray: '#F4F9FB'   // ขาวอมฟ้า สำหรับตารางและกล่อง UI
+    bg: '#F0F8FF',
+    cardBg: '#FFFFFF',
+    textMain: '#000000',
+    primary: '#000000',       
+    accent: '#87CEFA',        
+    border: '#B0C4DE',
+    memberGray: '#000000',    
+    lightGray: '#F4F9FB'
   }
 
   // ==========================================
@@ -262,8 +261,50 @@ function App() {
 
   const trussDims = calculateTrussDimensions();
 
+  // ==========================================
+  // AUTO-MESH: ระบบหั่นเส้นอัตโนมัติป้องกันชิ้นส่วนทับซ้อน (Overlap)
+  // ==========================================
+  const autoCleanMesh = (nds, els) => {
+    let generated = [];
+    const getDist = (p1, p2) => Math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2);
+    const isBetween = (p, a, b) => Math.abs(getDist(a, p) + getDist(p, b) - getDist(a, b)) < 0.1;
+
+    els.forEach(el => {
+      const n1 = nds.find(n => n.id === el.n1);
+      const n2 = nds.find(n => n.id === el.n2);
+      if (!n1 || !n2) return;
+
+      let onSeg = nds.filter(n => n.id !== n1.id && n.id !== n2.id && isBetween(n, n1, n2));
+      if (onSeg.length === 0) {
+        generated.push({ n1: Math.min(n1.id, n2.id), n2: Math.max(n1.id, n2.id) });
+      } else {
+        onSeg.sort((a, b) => getDist(n1, a) - getDist(n1, b));
+        let path = [n1, ...onSeg, n2];
+        for (let i = 0; i < path.length - 1; i++) {
+          generated.push({ n1: Math.min(path[i].id, path[i+1].id), n2: Math.max(path[i].id, path[i+1].id) });
+        }
+      }
+    });
+
+    // กำจัดเส้นที่ซ้ำซ้อนกัน
+    const unique = [];
+    const seen = new Set();
+    generated.forEach((el, index) => {
+      const key = `${el.n1}-${el.n2}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        unique.push({ id: Date.now() + index, n1: el.n1, n2: el.n2 });
+      }
+    });
+    return unique;
+  };
+
   const runTrussAnalysis = async () => {
     try {
+      // 1. สั่งรัน Auto-Mesh ทำความสะอาดและแยกส่วนเส้นก่อนส่งข้อมูล
+      const cleanedElements = autoCleanMesh(nodes, elements);
+      setElements(cleanedElements); // อัปเดต UI หน้าเว็บให้ถูกต้องทันที
+
       const tRxns = {};
       const tSteps = [];
       tSteps.push("=== TRUSS STATIC EQUILIBRIUM & REACTIONS ===");
@@ -337,7 +378,8 @@ function App() {
       const calculatedEI = Number(trussE) * Number(trussI);
       const payload = {
         nodes: nodes.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
-        elements: elements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })),
+        // 2. สั่งใช้เส้นที่ทำความสะอาดแล้วส่งไปให้ Backend
+        elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })), 
         supports: trussSupports,
         loads: trussLoads,
         unit: trussUnit,
@@ -1140,7 +1182,6 @@ function App() {
                 <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
                 <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#fff', overflow: 'auto' }}>
                   
-                  {/* เปลี่ยนเป็นกำหนดพิกัด 1400x600 และเพิ่ม Defs ของ FBD */}
                   <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#fff' }}>
                     <defs>
                       <pattern id="gridT_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
@@ -1380,7 +1421,6 @@ function App() {
                 <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
                 <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#fff', overflow: 'auto' }}>
                   
-                  {/* เปลี่ยนเป็นกำหนดพิกัด 1400x600 และเพิ่ม Defs ของ FBD */}
                   <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#fff' }}>
                     <defs>
                       <pattern id="gridF_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
