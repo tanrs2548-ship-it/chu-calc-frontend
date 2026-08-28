@@ -14,13 +14,12 @@ function App() {
     textMain: '#000000',
     primary: '#000000',       
     accent: '#00BFFF',        
-    supportOrange: '#FFA500', // 4. สีส้มสำหรับ Support ทุกตัว
+    supportOrange: '#FFA500', 
     border: '#E0E0E0',
     memberGray: '#000000',    
     lightGray: '#F9F9F9'
   }
 
-  // 3. ปรับแต่ง Support: สีส้ม พร้อมเส้นขีดฐานระนาบประ
   const RenderSupportSVG = ({ cx, cy, type, dir }) => {
     const isV = dir === 'vertical';
     const color = theme.supportOrange;
@@ -30,7 +29,6 @@ function App() {
         : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx+15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
     }
     if (type === 'roller') {
-      // 3. Roller สีส้ม มีวงกลมทึบและขีดประด้านใต้
       return isV
         ? <g><circle cx={cx-10} cy={cy} r={6} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
         : <g><circle cx={cx} cy={cy+10} r={6} fill={color} /><line x1={cx-15} y1={cy+18} x2={cx+15} y2={cy+18} stroke={color} strokeWidth="2.5" /></g>;
@@ -115,7 +113,7 @@ function App() {
 
   const analyzeBeam = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 3000)); // 5. 3 วินาที
+    await new Promise(r => setTimeout(r, 3000));
     try {
       const calculatedEI = Number(beamE) * Number(beamI);
       const payload = {
@@ -301,7 +299,7 @@ function App() {
 
   const runTrussAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 3000)); // 5. 3 วินาที
+    await new Promise(r => setTimeout(r, 3000));
     try {
       const cleanedElements = autoCleanMesh(nodes, elements);
       setElements(cleanedElements);
@@ -580,7 +578,7 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
-        // 2. เอาการแรเงาสีฟ้าอ่อนออก เหลือเฉพาะลูกศรและเส้นโครงสีฟ้า
+        // 2. เอาการแรเงาสีฟ้าออก เหลือแค่เส้นโครงและหัวลูกศร
         arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
@@ -614,12 +612,12 @@ function App() {
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      {/* 5. ข้อความหมุน CHUCLAC ตอนกด Analyze */}
+      {/* 5. ตอนโหลด 3 วิ แสดงข้อความ CHU CLAC */}
       {isAnalyzing && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.9)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '70px', height: '70px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-          <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '4px', fontFamily: '"Times New Roman", Times, serif' }}>CHUCLAC</h1>
-          <p style={{ color: '#666', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Engineering Mechanics...</p>
+          <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '5px', fontSize: '2rem', fontFamily: '"Times New Roman", Times, serif' }}>CHU CLAC</h1>
+          <p style={{ color: '#555', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Structural Mechanics...</p>
           <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
         </div>
       )}
@@ -680,6 +678,7 @@ function App() {
               </div>
               <svg viewBox="0 0 1000 180" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                 <defs>
+                  {/* 2. กำหนด Marker หัวลูกศรให้ UDL */}
                   <marker id="arrowUDLB" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                 </defs>
                 <line x1="50" y1="140" x2="950" y2="140" stroke={theme.border} strokeWidth="1" strokeDasharray="5,5" />
@@ -775,7 +774,6 @@ function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <h4 style={{ margin: 0, fontSize: '1rem' }}>Beam Length & Supports</h4>
                   <div style={{ display: 'flex', gap: '6px' }}>
-                    {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมสีขาว */}
                     <button onClick={handleUndoBeam} disabled={beamHistory.length === 0} style={{ backgroundColor: '#FFFFFF', color: '#000000', border: '1px solid #000000', padding: '4px 10px', borderRadius: '4px', cursor: beamHistory.length===0?'not-allowed':'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>Undo</button>
                     <button onClick={addBeamSupport} style={{ backgroundColor: '#000', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>+ Support</button>
                   </div>
@@ -913,7 +911,6 @@ function App() {
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
               <div className="no-print" style={{ padding: '10px 15px', backgroundColor: theme.lightGray, borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมสีขาว */}
                   <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#FFFFFF', color: '#000000', border: '1px solid #000000', borderRadius: '4px' }}>Undo</button>
                   <button onClick={clearTrussCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
                 </div>
@@ -966,7 +963,6 @@ function App() {
                     const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     return (
                       <g key={`load-${nId}`}>
-                        {/* 1. แสดงผลเฉพาะเมื่อมีการระบุค่าแรง ไม่ให้รก */}
                         {Number(force.fy) !== 0 && force.fy !== undefined && (
                           <>
                             <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowT)" />
@@ -1079,8 +1075,7 @@ function App() {
                     <select value={trussSupports[selectedNodeId]?.direction || 'horizontal'} onChange={(e) => { saveTrussState(); setTrussSupports(prev => ({ ...prev, [selectedNodeId]: { ...prev[selectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
                       <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
                     </select>
-                    {/* 1. โหลดแนวนอน (Fx) จะแสดงเฉพาะเมื่อผู้ใช้กรอกค่า */}
-                    <input type="number" placeholder="Fx Load (optional)" value={trussLoads[selectedNodeId]?.fx || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fx', e.target.value)} style={{ width: '120px', padding: '4px' }} />
+                    <input type="number" placeholder="Fx Load" value={trussLoads[selectedNodeId]?.fx || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fx', e.target.value)} style={{ width: '80px', padding: '4px' }} />
                     <input type="number" placeholder="Fy Load" value={trussLoads[selectedNodeId]?.fy || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fy', e.target.value)} style={{ width: '80px', padding: '4px' }} />
                   </div>
                 ) : <span style={{ fontSize: '0.9rem', color: '#666' }}>Click any node on canvas to configure support & point load.</span>}
@@ -1131,7 +1126,6 @@ function App() {
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
               <div className="no-print" style={{ padding: '10px 15px', backgroundColor: theme.lightGray, borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมสีขาว */}
                   <button onClick={handleUndoFrame} disabled={frameHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: frameHistory.length===0?'not-allowed':'pointer', backgroundColor: '#FFFFFF', color: '#000000', border: '1px solid #000000', borderRadius: '4px' }}>Undo</button>
                   <button onClick={clearFrameCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
                 </div>
@@ -1220,7 +1214,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && (
                           <>
-                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.node} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
+                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
                             <text x={node.x} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
                           </>
                         )}
