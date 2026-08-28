@@ -59,6 +59,10 @@ function App() {
     ? Array.from({ length: Math.floor(safeBeamLength / 2) + 1 }, (_, i) => i * 2) 
     : Array.from({ length: Math.floor(safeBeamLength) + 1 }, (_, i) => i);
 
+  // ระบบเรียงอักษร A, B, C, D อัตโนมัติจากซ้ายไปขวา
+  const sortedBeamSupports = [...beamSupports].sort((a, b) => a.x - b.x);
+  const getBeamNodeLabel = (id) => String.fromCharCode(65 + sortedBeamSupports.findIndex(s => s.id === id));
+
   const addBeamSupport = () => { saveBeamState(); setBeamSupports([...beamSupports, { id: Date.now(), type: "roller", x: safeBeamLength / 2 }]) }
   const removeBeamSupport = (id) => { saveBeamState(); setBeamSupports(beamSupports.filter(s => s.id !== id)) }
   const updateBeamSupport = (id, field, value) => { saveBeamState(); setBeamSupports(beamSupports.map(s => s.id === id ? { ...s, [field]: value } : s)) }
@@ -884,12 +888,16 @@ function App() {
                 <line x1="50" y1="140" x2="950" y2="140" stroke={theme.border} strokeWidth="1" strokeDasharray="5,5" />
                 <text x="500" y="165" textAnchor="middle" fill={theme.textMain} fontSize="14">L = {safeBeamLength} m</text>
                 <rect x="50" y="75" width="900" height="15" fill={theme.lightGray} stroke={theme.textMain} strokeWidth="2" />
-                {beamSupports.map(sup => (
-                  <g key={sup.id}>
-                    {sup.type === 'pin' ? <polygon points={`${getSvgX(sup.x)},90 ${getSvgX(sup.x)-12},115 ${getSvgX(sup.x)+12},115`} fill="none" stroke={theme.textMain} strokeWidth="2" /> : sup.type === 'fixed' ? <rect x={getSvgX(sup.x) - 8} y="90" width="16" height="25" fill={theme.textMain} /> : sup.type === 'free' ? <rect x={getSvgX(sup.x)-6} y="75" width="12" height="15" fill="none" stroke="#666" strokeWidth="1.5" strokeDasharray="2,2" /> : <circle cx={getSvgX(sup.x)} cy="102" r="10" fill="none" stroke={theme.textMain} strokeWidth="2" />}
-                    <text x={getSvgX(sup.x)} y="132" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">x={sup.x}</text>
-                  </g>
-                ))}
+                {beamSupports.map(sup => {
+                  const label = getBeamNodeLabel(sup.id);
+                  return (
+                    <g key={sup.id}>
+                      <text x={getSvgX(sup.x)} y="65" textAnchor="middle" fontSize="16" fill={theme.textMain} fontWeight="bold">{label}</text>
+                      {sup.type === 'pin' ? <polygon points={`${getSvgX(sup.x)},90 ${getSvgX(sup.x)-12},115 ${getSvgX(sup.x)+12},115`} fill="none" stroke={theme.textMain} strokeWidth="2" /> : sup.type === 'fixed' ? <rect x={getSvgX(sup.x) - 8} y="90" width="16" height="25" fill={theme.textMain} /> : sup.type === 'free' ? <rect x={getSvgX(sup.x)-6} y="75" width="12" height="15" fill="none" stroke="#666" strokeWidth="1.5" strokeDasharray="2,2" /> : <circle cx={getSvgX(sup.x)} cy="102" r="10" fill="none" stroke={theme.textMain} strokeWidth="2" />}
+                      <text x={getSvgX(sup.x)} y="132" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">x={sup.x}</text>
+                    </g>
+                  )
+                })}
                 {beamLoads.map(load => {
                   if (load.type === 'point') {
                     return (
@@ -938,12 +946,13 @@ function App() {
                     const rx = getSvgX(sup.x);
                     const foundRx = beamReactions.find(r => Math.abs(r.support_x - sup.x) < 0.01);
                     const forceVal = foundRx ? foundRx.force_kN : 0;
+                    const label = getBeamNodeLabel(sup.id);
                     return (
                       <g key={`fbd-${sup.id}`}>
                         {sup.type !== 'free' && (
                           <>
                             <line x1={rx} y1={120} x2={rx} y2={80} stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
-                            <text x={rx} y="135" textAnchor="middle" fontSize="13" fill="#000" fontWeight="bold">R = {forceVal.toFixed(2)} {forceUnit}</text>
+                            <text x={rx} y="135" textAnchor="middle" fontSize="13" fill="#000" fontWeight="bold">R_{label} = {forceVal.toFixed(2)} {forceUnit}</text>
                           </>
                         )}
                         {sup.type === 'pin' && <polygon points={`${rx},65 ${rx-10},45 ${rx+10},45`} fill={theme.textMain} />}
