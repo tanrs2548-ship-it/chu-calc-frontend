@@ -7,6 +7,7 @@ function App() {
   const [currentView, setCurrentView] = useState('home')
   const [activeTab, setActiveTab] = useState('beam')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [showFormulaModal, setShowFormulaModal] = useState(false)
   const PIXELS_PER_GRID = 50
 
   const theme = {
@@ -48,7 +49,7 @@ function App() {
   }
 
   // ==========================================
-  // 1. BEAM ANALYSIS 
+  // 1. BEAM ANALYSIS
   // ==========================================
   const [beamLength, setBeamLength] = useState(4)
   const [forceUnit, setForceUnit] = useState('kN') 
@@ -98,7 +99,25 @@ function App() {
   const addBeamDistLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "distributed", magnitude: 2, start_x: 0, end_x: safeBeamLength / 2 }]) }
   const addBeamMomentLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "moment", magnitude: 10, x: safeBeamLength / 2, direction: 'cw' }]) }
   const removeBeamLoad = (id) => { saveBeamState(); setBeamLoads(beamLoads.filter(l => l.id !== id)) }
-  const updateBeamLoad = (id, field, value) => { saveBeamState(); setBeamLoads(beamLoads.map(l => l.id === id ? { ...l, [field]: value } : l)) }
+  const updateBeamLoad = (id, field, value) => { saveBeamState(); setBeamLoads(beamLoads.map(l => l.id === id ? { ...l, [field]: value } : s)) }
+
+  // Beam Presets
+  const loadBeamPreset = (type) => {
+    saveBeamState()
+    if (type === 'simply-supported') {
+      setBeamLength(6)
+      setBeamSupports([{ id: 1, type: "pin", x: 0, direction: "horizontal" }, { id: 2, type: "roller", x: 6, direction: "horizontal" }])
+      setBeamLoads([{ id: 1, type: "point", magnitude: 10, x: 3 }])
+    } else if (type === 'overhanging') {
+      setBeamLength(8)
+      setBeamSupports([{ id: 1, type: "pin", x: 0, direction: "horizontal" }, { id: 2, type: "roller", x: 6, direction: "horizontal" }])
+      setBeamLoads([{ id: 1, type: "distributed", magnitude: 4, start_x: 0, end_x: 6 }, { id: 2, type: "point", magnitude: 8, x: 8 }])
+    } else if (type === 'cantilever') {
+      setBeamLength(4)
+      setBeamSupports([{ id: 1, type: "fixed", x: 0, direction: "horizontal" }])
+      setBeamLoads([{ id: 1, type: "distributed", magnitude: 5, start_x: 0, end_x: 4 }])
+    }
+  }
 
   const getMaxMin = (data, key) => {
     if (!data || data.length === 0) return { max: null, min: null };
@@ -276,6 +295,36 @@ function App() {
 
   const trussDims = calculateTrussDimensions();
 
+  // Truss Presets
+  const loadTrussPreset = (type) => {
+    saveTrussState()
+    if (type === 'pratt') {
+      const pNodes = [
+        { id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 300, y: 350 }, { id: 3, name: "C", x: 400, y: 350 },
+        { id: 4, name: "D", x: 400, y: 250 }, { id: 5, name: "E", x: 300, y: 250 }, { id: 6, name: "F", x: 200, y: 250 }
+      ]
+      const pElements = [
+        { id: 101, n1: 1, n2: 2 }, { id: 102, n1: 2, n2: 3 }, { id: 103, n1: 6, n2: 5 }, { id: 104, n1: 5, n2: 4 },
+        { id: 105, n1: 1, n2: 6 }, { id: 106, n1: 2, n2: 5 }, { id: 107, n1: 3, n2: 4 }, { id: 108, n1: 1, n2: 5 }, { id: 109, n1: 3, n2: 5 }
+      ]
+      setNodes(pNodes); setElements(pElements);
+      setTrussSupports({ 1: { type: "pin", direction: "horizontal" }, 3: { type: "roller", direction: "horizontal" } });
+      setTrussLoads({ 2: { fy: 15 } });
+    } else if (type === 'warren') {
+      const wNodes = [
+        { id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 350, y: 350 }, { id: 3, name: "C", x: 500, y: 350 },
+        { id: 4, name: "D", x: 275, y: 220 }, { id: 5, name: "E", x: 425, y: 220 }
+      ]
+      const wElements = [
+        { id: 201, n1: 1, n2: 2 }, { id: 202, n1: 2, n2: 3 }, { id: 203, n1: 4, n2: 5 },
+        { id: 204, n1: 1, n2: 4 }, { id: 205, n1: 4, n2: 2 }, { id: 206, n1: 2, n2: 5 }, { id: 207, n1: 5, n2: 3 }
+      ]
+      setNodes(wNodes); setElements(wElements);
+      setTrussSupports({ 1: { type: "pin", direction: "horizontal" }, 3: { type: "roller", direction: "horizontal" } });
+      setTrussLoads({ 2: { fy: 20 } });
+    }
+  }
+
   const autoCleanMesh = (nds, els) => {
     let generated = [];
     const getDist = (p1, p2) => Math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2);
@@ -441,6 +490,23 @@ function App() {
   const handleElementPointLoadChange = (elId, field, value) => { saveFrameState(); setFPointLoadsOnElement(prev => { const np = { ...prev }; if (value === '') { if (np[elId]) { delete np[elId][field]; if (Object.keys(np[elId]).length === 0) delete np[elId]; } } else { np[elId] = { ...(np[elId] || {}), [field]: Number(value) }; } return np; }); }
   const clearFrameCanvas = () => { saveFrameState(); setFNodes([]); setFElements([]); setFSupports({}); setFLoads({}); setFDistLoads({}); setFPointLoadsOnElement({}); setFSelectedNodeId(null); setFSelectedElementId(null); setFrameLocalData({ steps: [], rxns: {}, analyzed: false }); }
 
+  // Frame Presets
+  const loadFramePreset = (type) => {
+    saveFrameState()
+    if (type === 'portal') {
+      const fNodesData = [
+        { id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 200, y: 200 },
+        { id: 3, name: "C", x: 350, y: 200 }, { id: 4, name: "D", x: 350, y: 350 }
+      ]
+      const fElementsData = [
+        { id: 11, n1: 1, n2: 2 }, { id: 12, n1: 2, n2: 3 }, { id: 13, n1: 3, n2: 4 }
+      ]
+      setFNodes(fNodesData); setFElements(fElementsData);
+      setFSupports({ 1: { type: "pin", direction: "horizontal" }, 4: { type: "roller", direction: "horizontal" } })
+      setFDistLoads({ 12: { wy: 3 } })
+    }
+  }
+
   const runFrameStaticsAnalysis = async () => {
     setIsAnalyzing(true);
     await new Promise(r => setTimeout(r, 3000));
@@ -573,7 +639,7 @@ function App() {
     const numArrows = Math.max(Math.floor(length / 25), 3);
     const cx = (x1 + x2) / 2; const cy = (y1 + y2) / 2;
     const unit = activeTab === 'frame' ? fForceUnit : forceUnit;
-    const markerId = "url(#arrowUDL)";
+    const markerId = "url(#arrowPoint)";
 
     if (wy && wy !== 0) {
       const arrows = []; const dirY = wy > 0 ? 1 : -1;
@@ -584,7 +650,7 @@ function App() {
       }
       elements.push(
         <g key="wy-group">
-          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.accent} strokeWidth="1.5" strokeDasharray="5,5" />
+          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.accent} strokeWidth="1.5" />
           {arrows}
           <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
         </g>
@@ -599,7 +665,7 @@ function App() {
       }
       elements.push(
         <g key="wx-group">
-          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.accent} strokeWidth="1.5" strokeDasharray="5,5" />
+          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.accent} strokeWidth="1.5" />
           {arrows}
           <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
         </g>
@@ -647,17 +713,58 @@ function App() {
   }
 
   // ==========================================
-  // RENDER STATICS APP
+  // RENDER STATICS SUITE
   // ==========================================
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
+      {/* 1. Global Markers */}
+      <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+        <defs>
+          <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+          <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
+        </defs>
+      </svg>
+
+      {/* 2. Loading Animation */}
       {isAnalyzing && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '70px', height: '70px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
           <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '6px', fontSize: '2.2rem', fontFamily: '"Times New Roman", Times, serif', fontWeight: 'bold' }}>CHU CALC</h1>
           <p style={{ color: '#555', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Structural Mechanics...</p>
           <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+
+      {/* 3. Formula Cheat Sheet Modal */}
+      {showFormulaModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div style={{ backgroundColor: '#fff', padding: '30px', borderRadius: '12px', maxWidth: '650px', width: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.textMain}`, paddingBottom: '10px', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0 }}>Statics Formula Sheet</h2>
+              <button onClick={() => setShowFormulaModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+            </div>
+            <div style={{ fontSize: '0.95rem', lineHeight: '1.6' }}>
+              <h4 style={{ margin: '10px 0 5px 0' }}>1. Static Equilibrium Equations</h4>
+              <p style={{ backgroundColor: theme.lightGray, padding: '10px', borderRadius: '6px', fontFamily: 'monospace' }}>
+                ∑Fx = 0 (Horizontal Force Equilibrium)<br/>
+                ∑Fy = 0 (Vertical Force Equilibrium)<br/>
+                ∑M_z = 0 (Moment Equilibrium about Any Point)
+              </p>
+              <h4 style={{ margin: '15px 0 5px 0' }}>2. Beam Relations</h4>
+              <p style={{ backgroundColor: theme.lightGray, padding: '10px', borderRadius: '6px', fontFamily: 'monospace' }}>
+                dV/dx = -w(x)  (Slope of Shear Force Diagram = -Load)<br/>
+                dM/dx = V(x)   (Slope of Bending Moment Diagram = Shear Force)<br/>
+                ΔV = ∫ -w(x) dx<br/>
+                ΔM = ∫ V(x) dx
+              </p>
+              <h4 style={{ margin: '15px 0 5px 0' }}>3. Zero-Force Member Rules (Trusses)</h4>
+              <ul>
+                <li>Two non-collinear members connect at an unloaded joint ➔ Both are Zero-Force members.</li>
+                <li>Three members meet at a joint with two collinear and no external load ➔ The non-collinear member is Zero-Force.</li>
+              </ul>
+            </div>
+          </div>
         </div>
       )}
 
@@ -679,17 +786,21 @@ function App() {
 
       <div style={{ maxWidth: '1250px', margin: '0 auto' }}>
         
-        <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-          <button onClick={() => setCurrentView('home')} style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #ccc', backgroundColor: '#fff', color: '#333' }}>
-            ◀ Back to Menu
+        {/* Top Header Navigation */}
+        <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+          <button onClick={() => setCurrentView('home')} style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #000', backgroundColor: '#fff', color: '#000' }}>
+            ◀ Main Menu
           </button>
           <div style={{ textAlign: 'center' }}>
-            <h2 style={{ fontSize: '2rem', letterSpacing: '3px', color: theme.textMain, margin: '0 0 5px 0' }}>Engineering Mechanics Statics</h2>
+            <h2 style={{ fontSize: '1.8rem', letterSpacing: '2px', color: theme.textMain, margin: '0 0 5px 0' }}>Engineering Mechanics Statics</h2>
           </div>
-          <div style={{ width: '100px' }}></div>
+          <button onClick={() => setShowFormulaModal(true)} style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #000', backgroundColor: '#000', color: '#fff' }}>
+            📖 Formulas
+          </button>
         </div>
 
-        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '30px', justifyContent: 'center' }}>
+        {/* Structure Selector Tabs */}
+        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center' }}>
           <button onClick={() => setActiveTab('beam')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'beam' ? '#000' : '#fff', color: activeTab === 'beam' ? '#fff' : '#000' }}>Simple Beam</button>
           <button onClick={() => setActiveTab('truss')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'truss' ? '#000' : '#fff', color: activeTab === 'truss' ? '#fff' : '#000' }}>Truss Builder</button>
           <button onClick={() => setActiveTab('frame')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'frame' ? '#000' : '#fff', color: activeTab === 'frame' ? '#fff' : '#000' }}>Frame Reactions</button>
@@ -706,6 +817,14 @@ function App() {
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
+            {/* Presets Bar */}
+            <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Presets:</span>
+              <button onClick={() => loadBeamPreset('simply-supported')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Simply Supported (Point Load)</button>
+              <button onClick={() => loadBeamPreset('overhanging')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Overhanging Beam (UDL + Point)</button>
+              <button onClick={() => loadBeamPreset('cantilever')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Cantilever Beam</button>
+            </div>
+
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <h3 style={{ margin: 0, color: theme.textMain, fontSize: '1.1rem' }}>1. Structural Beam Model & Loading</h3>
@@ -717,10 +836,6 @@ function App() {
                 </div>
               </div>
               <svg viewBox="0 0 1000 180" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
-                <defs>
-                  <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-                  <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-                </defs>
                 <line x1="50" y1="140" x2="950" y2="140" stroke={theme.border} strokeWidth="1" strokeDasharray="5,5" />
                 <text x="500" y="165" textAnchor="middle" fill={theme.textMain} fontSize="14">L = {safeBeamLength} m</text>
                 <rect x="50" y="75" width="900" height="15" fill="#EEEEEE" stroke={theme.textMain} strokeWidth="2" />
@@ -764,11 +879,6 @@ function App() {
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fff' }}>
                 <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
                 <svg viewBox="0 0 1000 150" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
-                  <defs>
-                    <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
-                    <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-                    <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-                  </defs>
                   <rect x="50" y="65" width="900" height="12" fill="#EEEEEE" stroke={theme.textMain} strokeWidth="1.5" />
                   {beamSupports.map(sup => {
                     const rx = getSvgX(sup.x);
@@ -954,6 +1064,13 @@ function App() {
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
+            {/* Truss Presets */}
+            <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Presets:</span>
+              <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Pratt Truss</button>
+              <button onClick={() => loadTrussPreset('warren')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Warren Truss</button>
+            </div>
+
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
               <div className="no-print" style={{ padding: '10px 15px', backgroundColor: theme.lightGray, borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -988,7 +1105,6 @@ function App() {
                 <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
                   <defs>
                     <pattern id="gridT" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                    <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#gridT)" />
                   {renderDimensions(nodes, gridScale)}
@@ -1017,7 +1133,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
@@ -1043,15 +1159,27 @@ function App() {
                   <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#fff' }}>
                     <defs>
                       <pattern id="gridT_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                      <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
-                      <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                     </defs>
                     <rect width="100%" height="100%" fill="url(#gridT_FBD)" />
                     
                     {elements.map(el => {
                       const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
                       if (!n1 || !n2) return null;
-                      return <line key={`t-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
+                      
+                      // Zero-Force Member Visual Check
+                      const memberName1 = `${n1.name}${n2.name}`;
+                      const memberName2 = `${n2.name}${n1.name}`;
+                      const resMember = trussAnalysisResult?.members?.find(m => m.name === memberName1 || m.name === memberName2);
+                      const isZeroForce = resMember && resMember.status === "Zero-Force";
+
+                      return (
+                        <g key={`t-fbd-el-${el.id}`}>
+                          <line x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={isZeroForce ? '#AAAAAA' : theme.memberGray} strokeWidth={isZeroForce ? "2.5" : "3.5"} strokeDasharray={isZeroForce ? "4,4" : "none"} strokeLinecap="round" />
+                          {isZeroForce && (
+                            <text x={(n1.x + n2.x)/2} y={(n1.y + n2.y)/2 - 8} fill="#888888" fontSize="11" fontWeight="bold" textAnchor="middle">0-Force</text>
+                          )}
+                        </g>
+                      );
                     })}
                     {Object.entries(trussSupports).map(([nId, supData]) => {
                       const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
@@ -1092,7 +1220,7 @@ function App() {
                           )}
                           {Number(force.fx) !== 0 && force.fx !== undefined && (
                             <>
-                              <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                              <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {trussUnit}</text>
                             </>
                           )}
@@ -1147,8 +1275,10 @@ function App() {
                   <thead><tr style={{ backgroundColor: theme.lightGray, borderBottom: `2px solid ${theme.textMain}` }}><th style={{ padding: '6px', textAlign: 'left' }}>Member</th><th style={{ padding: '6px', textAlign: 'right' }}>Force ({trussUnit})</th><th style={{ padding: '6px', textAlign: 'center' }}>Status</th></tr></thead>
                   <tbody>
                     {trussAnalysisResult.members.map((m, i) => (
-                      <tr key={i} style={{ borderBottom: `1px solid ${theme.border}`, pageBreakInside: 'avoid' }}>
-                        <td style={{ padding: '6px' }}>{m.name}</td><td style={{ padding: '6px', textAlign: 'right' }}>{Math.abs(m.force).toLocaleString()}</td><td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold' }}>{m.status}</td>
+                      <tr key={i} style={{ borderBottom: `1px solid ${theme.border}`, pageBreakInside: 'avoid', backgroundColor: m.status === 'Zero-Force' ? '#FFFBEA' : 'transparent' }}>
+                        <td style={{ padding: '6px' }}>{m.name}</td>
+                        <td style={{ padding: '6px', textAlign: 'right' }}>{Math.abs(m.force).toLocaleString()}</td>
+                        <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: m.status === 'Zero-Force' ? '#B7791F' : 'inherit' }}>{m.status}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1167,6 +1297,12 @@ function App() {
                 <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#666' }}>Project: Equilibrium & Reactions Evaluation</p>
               </div>
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
+            </div>
+
+            {/* Frame Presets */}
+            <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Presets:</span>
+              <button onClick={() => loadFramePreset('portal')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Portal Frame (UDL on Beam)</button>
             </div>
 
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
@@ -1193,8 +1329,6 @@ function App() {
                 <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
                   <defs>
                     <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                    <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-                    <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#gridF)" />
                   {renderDimensions(fNodes, fGridScale)}
@@ -1261,7 +1395,7 @@ function App() {
                         {Number(force.fx) !== 0 && (
                           <>
                             <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                            <text x={node.x} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
+                            <text x={node.x - 15} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
                           </>
                         )}
                         {Number(force.mz) !== 0 && (
@@ -1293,9 +1427,6 @@ function App() {
                   <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#fff' }}>
                     <defs>
                       <pattern id="gridF_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                      <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-                      <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
-                      <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                     </defs>
                     <rect width="100%" height="100%" fill="url(#gridF_FBD)" />
                     
@@ -1392,14 +1523,14 @@ function App() {
                           )}
                           {Number(force.fx) !== 0 && (
                             <>
-                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {fForceUnit}</text>
                             </>
                           )}
                           {Number(force.mz) !== 0 && (
                             <g>
                               <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
-                              <text x={node.x} y={node.y - 45} fontSize="12" fill={theme.textMain} fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)}</text>
+                              <text x={node.x} y={node.y - 45} fill={theme.textMain} fontSize="13" fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)}</text>
                             </g>
                           )}
                         </g>
