@@ -4,6 +4,10 @@ import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 import './App.css'
 
 function App() {
+  // ==========================================
+  // STATE ควบคุมการเปลี่ยนหน้า (Home / Statics)
+  // ==========================================
+  const [currentView, setCurrentView] = useState('home')
   const [activeTab, setActiveTab] = useState('beam')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const PIXELS_PER_GRID = 50
@@ -15,10 +19,11 @@ function App() {
     primary: '#000000',       
     accent: '#00BFFF',        
     supportOrange: '#FFA500', 
-    udlOrange: '#FFA500',     // สีส้มสำหรับแรงกระจาย (UDL) แบบในภาพตัวอย่าง
     border: '#E0E0E0',
     memberGray: '#000000',    
-    lightGray: '#F9F9F9'
+    lightGray: '#F9F9F9',
+    disabledBg: '#F0F0F0',
+    disabledText: '#A0A0A0'
   }
 
   const RenderSupportSVG = ({ cx, cy, type, dir }) => {
@@ -66,7 +71,6 @@ function App() {
   const [tabularResults, setTabularResults] = useState([])
   const [deflectionTable, setDeflectionTable] = useState([])
   const [beamSteps, setBeamSteps] = useState([])
-  const [beamAnalysisType, setBeamAnalysisType] = useState("determinate")
 
   const [beamHistory, setBeamHistory] = useState([])
   const saveBeamState = () => setBeamHistory(prev => [...prev, { supports: [...beamSupports], loads: [...beamLoads] }])
@@ -127,7 +131,7 @@ function App() {
         }),
         ei: useEI ? calculatedEI : null,
         unit: forceUnit,
-        analysis_type: beamAnalysisType
+        analysis_type: "determinate" // บังคับเป็น determinate เสมอสำหรับวิชา Statics
       };
       
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
@@ -572,19 +576,18 @@ function App() {
     const numArrows = Math.max(Math.floor(length / 25), 3);
     const cx = (x1 + x2) / 2; const cy = (y1 + y2) / 2;
     const unit = activeTab === 'frame' ? fForceUnit : forceUnit;
-    const markerId = "url(#arrowUDL)";
+    const markerId = "url(#arrowUDL_Orange)";
 
     if (wy && wy !== 0) {
       const arrows = []; const dirY = wy > 0 ? 1 : -1;
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
-        // เพิ่ม markerEnd="url(#arrowUDL)" เพื่อให้หัวลูกศรโผล่มาแน่นอน
-        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
+        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wy-group">
-          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.accent} strokeWidth="1.5" />
+          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
           {arrows}
           <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
         </g>
@@ -595,12 +598,11 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startX = dirX > 0 ? ax - 35 : ax + 35; const endX = dirX > 0 ? ax - 5 : ax + 5;
-        // เพิ่ม markerEnd="url(#arrowUDL)" เพื่อให้หัวลูกศรโผล่
-        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
+        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wx-group">
-          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.accent} strokeWidth="1.5" />
+          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
           {arrows}
           <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
         </g>
@@ -611,10 +613,57 @@ function App() {
 
   const inputStyle = { width: '80px', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}`, marginLeft: '10px', fontFamily: '"Times New Roman", Times, serif', backgroundColor: '#fff', color: theme.textMain }
 
+  // ==========================================
+  // RENDER HOME MENU
+  // ==========================================
+  if (currentView === 'home') {
+    return (
+      <div style={{ backgroundColor: theme.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '80px', fontFamily: '"Times New Roman", Times, serif' }}>
+        <h1 style={{ fontSize: '3.5rem', letterSpacing: '4px', color: theme.textMain, margin: '0 0 10px 0' }}>CHU CALC</h1>
+        <p style={{ fontStyle: 'italic', color: '#555', fontSize: '1.2rem', marginBottom: '50px' }}>Engineering Statics & Structural Suite</p>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '30px', maxWidth: '800px', width: '100%', padding: '0 20px' }}>
+          
+          {/* Card 1: Active */}
+          <div 
+            onClick={() => setCurrentView('statics')}
+            style={{ backgroundColor: '#fff', border: `2px solid ${theme.textMain}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 20px rgba(0,0,0,0.08)', transition: 'transform 0.2s' }}
+            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
+            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+          >
+            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem' }}>1. Engineering Mechanics Statics</h2>
+            <p style={{ margin: 0, color: '#666', fontSize: '0.95rem' }}>Beam, Truss, and Frame Equilibrium Analysis.</p>
+          </div>
+
+          {/* Card 2: Disabled */}
+          <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
+            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>2. Mechanics of Materials</h2>
+            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
+          </div>
+
+          {/* Card 3: Disabled */}
+          <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
+            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>3. Theory of Structures</h2>
+            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
+          </div>
+
+          {/* Card 4: Disabled */}
+          <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
+            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>4. Structural Analysis</h2>
+            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
+          </div>
+
+        </div>
+      </div>
+    )
+  }
+
+  // ==========================================
+  // RENDER STATICS APP
+  // ==========================================
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      {/* 2. หน้าจอโหลด 3 วินาที แสดงข้อความ CHU CALC */}
       {isAnalyzing && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '70px', height: '70px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
@@ -642,9 +691,14 @@ function App() {
 
       <div style={{ maxWidth: '1250px', margin: '0 auto' }}>
         
-        <div className="no-print" style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <h2 style={{ fontSize: '2.5rem', letterSpacing: '3px', color: theme.textMain, margin: '0 0 5px 0' }}>CHU CALC</h2>
-          <p style={{ fontStyle: 'italic', color: '#555', fontSize: '1.1rem', margin: 0 }}>Engineering Statics & Structural Suite</p>
+        <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+          <button onClick={() => setCurrentView('home')} style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #ccc', backgroundColor: '#fff', color: '#333' }}>
+            ◀ Back to Menu
+          </button>
+          <div style={{ textAlign: 'center' }}>
+            <h2 style={{ fontSize: '2rem', letterSpacing: '3px', color: theme.textMain, margin: '0 0 5px 0' }}>Engineering Mechanics Statics</h2>
+          </div>
+          <div style={{ width: '100px' }}></div>
         </div>
 
         <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '30px', justifyContent: 'center' }}>
@@ -668,10 +722,6 @@ function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <h3 style={{ margin: 0, color: theme.textMain, fontSize: '1.1rem' }}>1. Structural Beam Model & Loading</h3>
                 <div className="no-print" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                  <select value={beamAnalysisType} onChange={(e) => setBeamAnalysisType(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
-                    <option value="determinate">Determinate (Simple)</option>
-                    <option value="indeterminate">Indeterminate (Moment Dist.)</option>
-                  </select>
                   <label style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Unit:</label>
                   <select value={forceUnit} onChange={(e) => setForceUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
                     <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="Ton">Ton</option>
@@ -681,6 +731,7 @@ function App() {
               <svg viewBox="0 0 1000 180" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                 <defs>
                   <marker id="arrowUDLB" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                  <marker id="arrowUDL_Orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.udlOrange} /></marker>
                 </defs>
                 <line x1="50" y1="140" x2="950" y2="140" stroke={theme.border} strokeWidth="1" strokeDasharray="5,5" />
                 <text x="500" y="165" textAnchor="middle" fill={theme.textMain} fontSize="14">L = {safeBeamLength} m</text>
@@ -1149,7 +1200,7 @@ function App() {
                 <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
                   <defs>
                     <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                    <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                    <marker id="arrowUDL_Orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.udlOrange} /></marker>
                     <marker id="arrowFramePoint" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#gridF)" />
@@ -1249,7 +1300,7 @@ function App() {
                   <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#fff' }}>
                     <defs>
                       <pattern id="gridF_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                      <marker id="arrowUDL_FBD" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                      <marker id="arrowUDL_Orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.udlOrange} /></marker>
                       <marker id="arrowFramePoint_FBD" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.textMain} /></marker>
                       <marker id="arrowFrameLoad_FBD" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
                     </defs>
