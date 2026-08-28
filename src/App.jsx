@@ -14,22 +14,26 @@ function App() {
     textMain: '#000000',
     primary: '#000000',       
     accent: '#00BFFF',        
+    supportOrange: '#FFA500', // 4. สีส้มสำหรับ Support ทุกตัว
     border: '#E0E0E0',
     memberGray: '#000000',    
     lightGray: '#F9F9F9'
   }
 
-  const RenderSupportSVG = ({ cx, cy, type, dir, color }) => {
+  // 3. ปรับแต่ง Support: สีส้ม พร้อมเส้นขีดฐานระนาบประ
+  const RenderSupportSVG = ({ cx, cy, type, dir }) => {
     const isV = dir === 'vertical';
+    const color = theme.supportOrange;
     if (type === 'pin') {
       return isV
-        ? <polygon points={`${cx-5},${cy} ${cx-20},${cy-10} ${cx-20},${cy+10}`} fill={color} />
-        : <polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} />;
+        ? <g><polygon points={`${cx-5},${cy} ${cx-20},${cy-10} ${cx-20},${cy+10}`} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
+        : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx+15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
     }
     if (type === 'roller') {
+      // 3. Roller สีส้ม มีวงกลมทึบและขีดประด้านใต้
       return isV
-        ? <g><circle cx={cx-8} cy={cy} r={6} fill={color} /><line x1={cx-18} y1={cy-15} x2={cx-18} y2={cy+15} stroke={color} strokeWidth="2" /></g>
-        : <g><circle cx={cx} cy={cy+8} r={6} fill={color} /><line x1={cx-15} y1={cy+18} x2={cx+15} y2={cy+18} stroke={color} strokeWidth="2" /></g>;
+        ? <g><circle cx={cx-10} cy={cy} r={6} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
+        : <g><circle cx={cx} cy={cy+10} r={6} fill={color} /><line x1={cx-15} y1={cy+18} x2={cx+15} y2={cy+18} stroke={color} strokeWidth="2.5" /></g>;
     }
     if (type === 'fixed') {
       return isV
@@ -111,7 +115,7 @@ function App() {
 
   const analyzeBeam = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000)); // 5. 3 วินาที
     try {
       const calculatedEI = Number(beamE) * Number(beamI);
       const payload = {
@@ -260,7 +264,6 @@ function App() {
 
   const clearTrussCanvas = () => { saveTrussState(); setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
 
-  // ประกาศฟังก์ชันนี้ไว้ชัดเจนเพื่อป้องกัน ReferenceError
   const calculateTrussDimensions = () => {
     if (!nodes || nodes.length === 0) return { totalWidth: 0, totalHeight: 0 };
     const minX = Math.min(...nodes.map(n => n.x)), maxX = Math.max(...nodes.map(n => n.x));
@@ -298,7 +301,7 @@ function App() {
 
   const runTrussAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000)); // 5. 3 วินาที
     try {
       const cleanedElements = autoCleanMesh(nodes, elements);
       setElements(cleanedElements);
@@ -440,7 +443,7 @@ function App() {
 
   const runFrameStaticsAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000));
     try {
       const fRxns = {}; const fSteps = []; fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
       let sumFx = 0; let sumFy = 0;
@@ -577,11 +580,12 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
-        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2" markerEnd={markerId} />);
+        // 2. เอาการแรเงาสีฟ้าอ่อนออก เหลือเฉพาะลูกศรและเส้นโครงสีฟ้า
+        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wy-group">
-          <rect x={Math.min(x1, x2)} y={dirY > 0 ? Math.min(y1, y2) - 35 : Math.min(y1, y2)} width={Math.abs(x2-x1) || 5} height={35} fill={theme.accent} fillOpacity="0.15" stroke={theme.accent} strokeWidth="1" strokeDasharray="3,3" />
+          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.accent} strokeWidth="1.5" />
           {arrows}
           <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
         </g>
@@ -592,11 +596,11 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startX = dirX > 0 ? ax - 35 : ax + 35; const endX = dirX > 0 ? ax - 5 : ax + 5;
-        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.accent} strokeWidth="2" markerEnd={markerId} />);
+        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wx-group">
-          <rect x={dirX > 0 ? Math.min(x1, x2) - 35 : Math.min(x1, x2)} y={Math.min(y1, y2)} width={35} height={Math.abs(y2-y1) || 5} fill={theme.accent} fillOpacity="0.15" stroke={theme.accent} strokeWidth="1" strokeDasharray="3,3" />
+          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.accent} strokeWidth="1.5" />
           {arrows}
           <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
         </g>
@@ -610,11 +614,12 @@ function App() {
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      {/* 5. OVERLAY SPINNER ตอนกด Analyze */}
+      {/* 5. ข้อความหมุน CHUCLAC ตอนกด Analyze */}
       {isAnalyzing && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.85)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-          <div style={{ width: '60px', height: '60px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.accent}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-          <h2 style={{ marginTop: '20px', color: theme.textMain, letterSpacing: '2px' }}>Analyzing Structure...</h2>
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.9)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <div style={{ width: '70px', height: '70px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '4px', fontFamily: '"Times New Roman", Times, serif' }}>CHUCLAC</h1>
+          <p style={{ color: '#666', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Engineering Mechanics...</p>
           <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
         </div>
       )}
@@ -686,7 +691,7 @@ function App() {
                   return (
                     <g key={sup.id}>
                       <text x={getSvgX(sup.x)} y="60" textAnchor="middle" fontSize="16" fill={theme.textMain} fontWeight="bold">{label}</text>
-                      <RenderSupportSVG cx={getSvgX(sup.x)} cy={75} type={sup.type} dir={sup.direction || 'horizontal'} color={theme.textMain} />
+                      <RenderSupportSVG cx={getSvgX(sup.x)} cy={75} type={sup.type} dir={sup.direction || 'horizontal'} />
                       <text x={getSvgX(sup.x)} y="132" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">x={sup.x}</text>
                     </g>
                   )
@@ -734,7 +739,7 @@ function App() {
                             <text x={rx} y="135" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">R_{label} = {forceVal.toFixed(2)} {forceUnit}</text>
                           </>
                         )}
-                        <RenderSupportSVG cx={rx} cy={65} type={sup.type} dir={sup.direction || 'horizontal'} color={theme.textMain} />
+                        <RenderSupportSVG cx={rx} cy={65} type={sup.type} dir={sup.direction || 'horizontal'} />
                       </g>
                     );
                   })}
@@ -770,8 +775,8 @@ function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <h4 style={{ margin: 0, fontSize: '1rem' }}>Beam Length & Supports</h4>
                   <div style={{ display: 'flex', gap: '6px' }}>
-                    {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมขาว */}
-                    <button onClick={handleUndoBeam} disabled={beamHistory.length === 0} style={{ backgroundColor: '#fff', color: '#000', border: '1px solid #000', padding: '4px 10px', borderRadius: '4px', cursor: beamHistory.length===0?'not-allowed':'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>Undo</button>
+                    {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมสีขาว */}
+                    <button onClick={handleUndoBeam} disabled={beamHistory.length === 0} style={{ backgroundColor: '#FFFFFF', color: '#000000', border: '1px solid #000000', padding: '4px 10px', borderRadius: '4px', cursor: beamHistory.length===0?'not-allowed':'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>Undo</button>
                     <button onClick={addBeamSupport} style={{ backgroundColor: '#000', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>+ Support</button>
                   </div>
                 </div>
@@ -782,7 +787,6 @@ function App() {
                     <select value={sup.type} onChange={(e) => updateBeamSupport(sup.id, 'type', e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
                       <option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option><option value="free">Free</option>
                     </select>
-                    {/* 4. เลือกระนาบ แนวนอน/แนวดิ่ง */}
                     <select value={sup.direction || 'horizontal'} onChange={(e) => updateBeamSupport(sup.id, 'direction', e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
                       <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
                     </select>
@@ -909,8 +913,8 @@ function App() {
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
               <div className="no-print" style={{ padding: '10px 15px', backgroundColor: theme.lightGray, borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมขาว */}
-                  <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px' }}>Undo</button>
+                  {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมสีขาว */}
+                  <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#FFFFFF', color: '#000000', border: '1px solid #000000', borderRadius: '4px' }}>Undo</button>
                   <button onClick={clearTrussCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
                 </div>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -954,7 +958,7 @@ function App() {
                     const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     return (
                       <g key={`sup-${nId}`}>
-                        <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} color={theme.textMain} />
+                        <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
                       </g>
                     )
                   })}
@@ -962,13 +966,14 @@ function App() {
                     const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     return (
                       <g key={`load-${nId}`}>
-                        {Number(force.fy) !== 0 && (
+                        {/* 1. แสดงผลเฉพาะเมื่อมีการระบุค่าแรง ไม่ให้รก */}
+                        {Number(force.fy) !== 0 && force.fy !== undefined && (
                           <>
                             <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowT)" />
                             <text x={node.x + 12} y={node.y - 25} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fy} {trussUnit}</text>
                           </>
                         )}
-                        {Number(force.fx) !== 0 && (
+                        {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
                             <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowT)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
@@ -1029,7 +1034,7 @@ function App() {
                               <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill="#000" fontWeight="bold">{fxText}</text>
                             </>
                           )}
-                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} color={theme.textMain} />
+                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
                         </g>
                       );
                     })}
@@ -1037,13 +1042,13 @@ function App() {
                       const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                       return (
                          <g key={`t-fbd-load-${nId}`}>
-                          {Number(force.fy) !== 0 && (
+                          {Number(force.fy) !== 0 && force.fy !== undefined && (
                             <>
                               <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowT_Load)" />
                               <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fy} {trussUnit}</text>
                             </>
                           )}
-                          {Number(force.fx) !== 0 && (
+                          {Number(force.fx) !== 0 && force.fx !== undefined && (
                             <>
                               <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowT_Load)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {trussUnit}</text>
@@ -1071,11 +1076,11 @@ function App() {
                     <select value={trussSupports[selectedNodeId]?.type || 'none'} onChange={(e) => handleSupportTypeChange(selectedNodeId, e.target.value)} style={{ fontFamily: '"Times New Roman", Times, serif' }}>
                       <option value="none">Support: None</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option><option value="free">Free</option>
                     </select>
-                    {/* 4. เลือกระนาบ แนวนอน/แนวดิ่ง */}
                     <select value={trussSupports[selectedNodeId]?.direction || 'horizontal'} onChange={(e) => { saveTrussState(); setTrussSupports(prev => ({ ...prev, [selectedNodeId]: { ...prev[selectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
                       <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
                     </select>
-                    <input type="number" placeholder="Fx Load" value={trussLoads[selectedNodeId]?.fx || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fx', e.target.value)} style={{ width: '80px', padding: '4px' }} />
+                    {/* 1. โหลดแนวนอน (Fx) จะแสดงเฉพาะเมื่อผู้ใช้กรอกค่า */}
+                    <input type="number" placeholder="Fx Load (optional)" value={trussLoads[selectedNodeId]?.fx || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fx', e.target.value)} style={{ width: '120px', padding: '4px' }} />
                     <input type="number" placeholder="Fy Load" value={trussLoads[selectedNodeId]?.fy || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fy', e.target.value)} style={{ width: '80px', padding: '4px' }} />
                   </div>
                 ) : <span style={{ fontSize: '0.9rem', color: '#666' }}>Click any node on canvas to configure support & point load.</span>}
@@ -1126,8 +1131,8 @@ function App() {
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
               <div className="no-print" style={{ padding: '10px 15px', backgroundColor: theme.lightGray, borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมขาว */}
-                  <button onClick={handleUndoFrame} disabled={frameHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: frameHistory.length===0?'not-allowed':'pointer', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px' }}>Undo</button>
+                  {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมสีขาว */}
+                  <button onClick={handleUndoFrame} disabled={frameHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: frameHistory.length===0?'not-allowed':'pointer', backgroundColor: '#FFFFFF', color: '#000000', border: '1px solid #000000', borderRadius: '4px' }}>Undo</button>
                   <button onClick={clearFrameCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
                 </div>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1198,7 +1203,7 @@ function App() {
                     const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     return (
                       <g key={`sup-${nId}`}>
-                        <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} color={theme.textMain} />
+                        <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
                       </g>
                     )
                   })}
@@ -1215,7 +1220,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && (
                           <>
-                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
+                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.node} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
                             <text x={node.x} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
                           </>
                         )}
@@ -1330,7 +1335,7 @@ function App() {
                               <text x={node.x} y={node.y - 45} fontSize="12" fill="#000" fontWeight="bold" textAnchor="middle">{mzText}</text>
                             </g>
                           )}
-                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} color={theme.textMain} />
+                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
                         </g>
                       );
                     })}
@@ -1379,7 +1384,6 @@ function App() {
                   <select value={fSupports[fSelectedNode.id]?.type || 'none'} onChange={(e) => handleFSupportTypeChange(fSelectedNode.id, e.target.value)} style={{ fontFamily: '"Times New Roman", Times, serif' }}>
                     <option value="none">Support: None</option><option value="fixed">Fixed</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="free">Free</option>
                   </select>
-                  {/* 4. เลือกระนาบ แนวนอน/แนวดิ่ง */}
                   <select value={fSupports[fSelectedNode.id]?.direction || 'horizontal'} onChange={(e) => { saveFrameState(); setFSupports(prev => ({ ...prev, [fSelectedNodeId]: { ...prev[fSelectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
                     <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
                   </select>
