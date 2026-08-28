@@ -99,9 +99,8 @@ function App() {
   const addBeamDistLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "distributed", magnitude: 2, start_x: 0, end_x: safeBeamLength / 2 }]) }
   const addBeamMomentLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "moment", magnitude: 10, x: safeBeamLength / 2, direction: 'cw' }]) }
   const removeBeamLoad = (id) => { saveBeamState(); setBeamLoads(beamLoads.filter(l => l.id !== id)) }
-  const updateBeamLoad = (id, field, value) => { saveBeamState(); setBeamLoads(beamLoads.map(l => l.id === id ? { ...l, [field]: value } : s)) }
+  const updateBeamLoad = (id, field, value) => { saveBeamState(); setBeamLoads(beamLoads.map(l => l.id === id ? { ...l, [field]: value } : l)) }
 
-  // Beam Presets
   const loadBeamPreset = (type) => {
     saveBeamState()
     if (type === 'simply-supported') {
@@ -295,7 +294,6 @@ function App() {
 
   const trussDims = calculateTrussDimensions();
 
-  // Truss Presets
   const loadTrussPreset = (type) => {
     saveTrussState()
     if (type === 'pratt') {
@@ -490,7 +488,6 @@ function App() {
   const handleElementPointLoadChange = (elId, field, value) => { saveFrameState(); setFPointLoadsOnElement(prev => { const np = { ...prev }; if (value === '') { if (np[elId]) { delete np[elId][field]; if (Object.keys(np[elId]).length === 0) delete np[elId]; } } else { np[elId] = { ...(np[elId] || {}), [field]: Number(value) }; } return np; }); }
   const clearFrameCanvas = () => { saveFrameState(); setFNodes([]); setFElements([]); setFSupports({}); setFLoads({}); setFDistLoads({}); setFPointLoadsOnElement({}); setFSelectedNodeId(null); setFSelectedElementId(null); setFrameLocalData({ steps: [], rxns: {}, analyzed: false }); }
 
-  // Frame Presets
   const loadFramePreset = (type) => {
     saveFrameState()
     if (type === 'portal') {
@@ -650,7 +647,7 @@ function App() {
       }
       elements.push(
         <g key="wy-group">
-          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.accent} strokeWidth="1.5" />
+          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.accent} strokeWidth="1.5" strokeDasharray="5,5" />
           {arrows}
           <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
         </g>
@@ -665,7 +662,7 @@ function App() {
       }
       elements.push(
         <g key="wx-group">
-          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.accent} strokeWidth="1.5" />
+          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.accent} strokeWidth="1.5" strokeDasharray="5,5" />
           {arrows}
           <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
         </g>
@@ -676,49 +673,10 @@ function App() {
 
   const inputStyle = { width: '80px', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}`, marginLeft: '10px', fontFamily: '"Times New Roman", Times, serif', backgroundColor: '#fff', color: theme.textMain }
 
-  // ==========================================
-  // RENDER HOME MENU
-  // ==========================================
-  if (currentView === 'home') {
-    return (
-      <div style={{ backgroundColor: theme.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '80px', fontFamily: '"Times New Roman", Times, serif' }}>
-        <h1 style={{ fontSize: '3.5rem', letterSpacing: '4px', color: theme.textMain, margin: '0 0 10px 0' }}>CHU CALC</h1>
-        <p style={{ fontStyle: 'italic', color: '#555', fontSize: '1.2rem', marginBottom: '50px' }}>Engineering Statics & Structural Suite</p>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '30px', maxWidth: '800px', width: '100%', padding: '0 20px' }}>
-          <div 
-            onClick={() => setCurrentView('statics')}
-            style={{ backgroundColor: '#fff', border: `2px solid ${theme.textMain}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 20px rgba(0,0,0,0.08)', transition: 'transform 0.2s' }}
-            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-5px)'}
-            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >
-            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem' }}>1. Engineering Mechanics Statics</h2>
-            <p style={{ margin: 0, color: '#666', fontSize: '0.95rem' }}>Beam, Truss, and Frame Equilibrium Analysis.</p>
-          </div>
-          <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
-            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>2. Mechanics of Materials</h2>
-            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
-          </div>
-          <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
-            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>3. Theory of Structures</h2>
-            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
-          </div>
-          <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
-            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>4. Structural Analysis</h2>
-            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // ==========================================
-  // RENDER STATICS SUITE
-  // ==========================================
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      {/* 1. Global Markers */}
+      {/* Global Marker Defs */}
       <svg style={{ position: 'absolute', width: 0, height: 0 }}>
         <defs>
           <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
@@ -726,7 +684,7 @@ function App() {
         </defs>
       </svg>
 
-      {/* 2. Loading Animation */}
+      {/* Loading Animation */}
       {isAnalyzing && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '70px', height: '70px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
@@ -736,7 +694,7 @@ function App() {
         </div>
       )}
 
-      {/* 3. Formula Cheat Sheet Modal */}
+      {/* Formula Sheet Modal */}
       {showFormulaModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ backgroundColor: '#fff', padding: '30px', borderRadius: '12px', maxWidth: '650px', width: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
@@ -786,7 +744,7 @@ function App() {
 
       <div style={{ maxWidth: '1250px', margin: '0 auto' }}>
         
-        {/* Top Header Navigation */}
+        {/* Top Header Navigation with Formula Button */}
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
           <button onClick={() => setCurrentView('home')} style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #000', backgroundColor: '#fff', color: '#000' }}>
             ◀ Main Menu
@@ -1064,7 +1022,7 @@ function App() {
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
-            {/* Truss Presets */}
+            {/* Presets Bar */}
             <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Presets:</span>
               <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Pratt Truss</button>
@@ -1166,7 +1124,6 @@ function App() {
                       const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
                       if (!n1 || !n2) return null;
                       
-                      // Zero-Force Member Visual Check
                       const memberName1 = `${n1.name}${n2.name}`;
                       const memberName2 = `${n2.name}${n1.name}`;
                       const resMember = trussAnalysisResult?.members?.find(m => m.name === memberName1 || m.name === memberName2);
@@ -1299,7 +1256,7 @@ function App() {
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
-            {/* Frame Presets */}
+            {/* Presets Bar */}
             <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Presets:</span>
               <button onClick={() => loadFramePreset('portal')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Portal Frame (UDL on Beam)</button>
