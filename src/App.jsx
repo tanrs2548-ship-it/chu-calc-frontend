@@ -356,7 +356,7 @@ function App() {
   }
 
   // ==========================================
-  // 3. FRAME ANALYSIS (Statics Reactions Only)
+  // 3. FRAME ANALYSIS (Statics Only)
   // ==========================================
   const [fNodes, setFNodes] = useState([])
   const [fElements, setFElements] = useState([])
@@ -498,7 +498,7 @@ function App() {
                       const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
                       const tfx = Number(dist.wx||0) * L_m; const tfy = -Number(dist.wy||0) * L_m;
                       const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
-                      const dx = (cx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pNode.y)/PIXELS_PER_GRID * fGridScale;
+                      const dx = (cx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pNode.x)/PIXELS_PER_GRID * fGridScale;
                       mPin += (tfy * dx) - (tfx * dy);
                   });
                   Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
@@ -578,7 +578,7 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
-        // 2. เอาการแรเงาสีฟ้าออก เหลือแค่เส้นโครงและหัวลูกศร
+        // เพิ่ม markerEnd="url(#arrowUDL)" เพื่อให้หัวลูกศรโผล่มาแน่นอน
         arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
@@ -612,11 +612,11 @@ function App() {
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      {/* 5. ตอนโหลด 3 วิ แสดงข้อความ CHU CLAC */}
+      {/* 5. แสดงข้อความ CHU CALC ตอนโหลด 3 วิ */}
       {isAnalyzing && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '70px', height: '70px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-          <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '5px', fontSize: '2rem', fontFamily: '"Times New Roman", Times, serif' }}>CHU CLAC</h1>
+          <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '5px', fontSize: '2rem', fontFamily: '"Times New Roman", Times, serif' }}>CHU CALC</h1>
           <p style={{ color: '#555', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Structural Mechanics...</p>
           <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
         </div>
@@ -678,7 +678,6 @@ function App() {
               </div>
               <svg viewBox="0 0 1000 180" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                 <defs>
-                  {/* 2. กำหนด Marker หัวลูกศรให้ UDL */}
                   <marker id="arrowUDLB" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                 </defs>
                 <line x1="50" y1="140" x2="950" y2="140" stroke={theme.border} strokeWidth="1" strokeDasharray="5,5" />
@@ -690,7 +689,7 @@ function App() {
                   return (
                     <g key={sup.id}>
                       <text x={getSvgX(sup.x)} y="60" textAnchor="middle" fontSize="16" fill={theme.textMain} fontWeight="bold">{label}</text>
-                      <RenderSupportSVG cx={getSvgX(sup.x)} cy={75} type={sup.type} dir={sup.direction || 'horizontal'} />
+                      <RenderSupportSVG cx={getSvgX(sup.x)} cy={90} type={sup.type} dir={sup.direction || 'horizontal'} />
                       <text x={getSvgX(sup.x)} y="132" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">x={sup.x}</text>
                     </g>
                   )
@@ -730,15 +729,17 @@ function App() {
                     const foundRx = beamReactions.find(r => Math.abs(r.support_x - sup.x) < 0.01);
                     const forceVal = foundRx ? foundRx.force_kN : 0;
                     const label = getBeamNodeLabel(sup.id);
+                    // ขยับข้อความ Reaction ขวาไม่ให้ทับซ้อนกับ Roller
+                    const textAnchorPos = rx > 850 ? rx - 35 : rx;
                     return (
                       <g key={`fbd-${sup.id}`}>
                         {sup.type !== 'free' && (
                           <>
                             <line x1={rx} y1={120} x2={rx} y2={80} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowUDL)" />
-                            <text x={rx} y="135" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">R_{label} = {forceVal.toFixed(2)} {forceUnit}</text>
+                            <text x={textAnchorPos} y="135" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">R_{label} = {forceVal.toFixed(2)} {forceUnit}</text>
                           </>
                         )}
-                        <RenderSupportSVG cx={rx} cy={65} type={sup.type} dir={sup.direction || 'horizontal'} />
+                        <RenderSupportSVG cx={rx} cy={80} type={sup.type} dir={sup.direction || 'horizontal'} />
                       </g>
                     );
                   })}
@@ -1465,4 +1466,4 @@ function App() {
   )
 }
 
-export default App
+exports = App
