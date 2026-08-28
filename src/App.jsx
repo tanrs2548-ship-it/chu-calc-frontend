@@ -8,21 +8,17 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const PIXELS_PER_GRID = 50
 
-  // 1. Theme พื้นหลังสีขาว และ โหลดสีฟ้าอ่อน
   const theme = {
     bg: '#FFFFFF',
     cardBg: '#FFFFFF',
     textMain: '#000000',
     primary: '#000000',       
-    accent: '#00BFFF', // สีฟ้าอ่อนสำหรับแรงกระทำ (Deep Sky Blue)        
+    accent: '#00BFFF',        
     border: '#E0E0E0',
     memberGray: '#000000',    
     lightGray: '#F9F9F9'
   }
 
-  // ==========================================
-  // HELPER COMPONENT: DRAW SUPPORTS (Horizontal & Vertical)
-  // ==========================================
   const RenderSupportSVG = ({ cx, cy, type, dir, color }) => {
     const isV = dir === 'vertical';
     if (type === 'pin') {
@@ -31,7 +27,6 @@ function App() {
         : <polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} />;
     }
     if (type === 'roller') {
-      // 2. Roller วงกลมสีทึบคล้าย Pin
       return isV
         ? <g><circle cx={cx-8} cy={cy} r={6} fill={color} /><line x1={cx-18} y1={cy-15} x2={cx-18} y2={cy+15} stroke={color} strokeWidth="2" /></g>
         : <g><circle cx={cx} cy={cy+8} r={6} fill={color} /><line x1={cx-15} y1={cy+18} x2={cx+15} y2={cy+18} stroke={color} strokeWidth="2" /></g>;
@@ -116,7 +111,7 @@ function App() {
 
   const analyzeBeam = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 2000)); // 5. แอนิเมชันคำนวณเท่ๆ 2 วิ
+    await new Promise(r => setTimeout(r, 2000));
     try {
       const calculatedEI = Number(beamE) * Number(beamI);
       const payload = {
@@ -264,6 +259,18 @@ function App() {
   }
 
   const clearTrussCanvas = () => { saveTrussState(); setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
+
+  // เพิ่มฟังก์ชันคำนวณขนาดโครงถักที่เคยหายไป
+  const calculateTrussDimensions = () => {
+    if (!nodes || nodes.length === 0) return { totalWidth: 0, totalHeight: 0 };
+    const minX = Math.min(...nodes.map(n => n.x)), maxX = Math.max(...nodes.map(n => n.x));
+    const minY = Math.min(...nodes.map(n => n.y)), maxY = Math.max(...nodes.map(n => n.y));
+    const totalWidth = ((maxX - minX) / PIXELS_PER_GRID) * gridScale;
+    const totalHeight = ((maxY - minY) / PIXELS_PER_GRID) * gridScale;
+    return { totalWidth, totalHeight };
+  };
+
+  const trussDims = calculateTrussDimensions();
 
   const autoCleanMesh = (nds, els) => {
     let generated = [];
@@ -602,7 +609,7 @@ function App() {
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      {/* 5. OVERLAY SPINNER สำหรับแอนิเมชันตอนคำนวณ */}
+      {/* 5. OVERLAY SPINNER ตอนกด Analyze */}
       {isAnalyzing && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.85)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '60px', height: '60px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.accent}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
@@ -972,7 +979,7 @@ function App() {
                   {nodes.map(node => (
                     <g key={node.id} style={{ cursor: 'pointer' }}>
                       <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleTrussNodeClick(e, node)} />
-                      <circle cx={node.x} cy={node.y} r={selectedNodeId === node.id ? 9 : 6} fill={selectedNodeId === node.id ? "#000" : "#fff"} stroke="#000" strokeWidth="2" style={{ pointerEvents: 'none' }} />
+                      <circle cx={node.x} cy={node.y} r={selectedNodeId === node.id ? 9 : 6} fill={selectedNodeId === node.id ? theme.accent : "#fff"} stroke="#000" strokeWidth="2" style={{ pointerEvents: 'none' }} />
                       <text x={node.x + 10} y={node.y - 10} fill={theme.textMain} fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
                     </g>
                   ))}
@@ -1207,7 +1214,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
+                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
                             <text x={node.x} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
                           </>
                         )}
@@ -1224,7 +1231,7 @@ function App() {
                   {fNodes.map(node => (
                     <g key={node.id} style={{ cursor: 'pointer' }}>
                       <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleFrameNodeClick(e, node)} />
-                      <circle cx={node.x} cy={node.y} r={fSelectedNodeId === node.id ? 9 : 6} fill={fSelectedNodeId === node.id ? "#000" : "#fff"} stroke="#000" strokeWidth="2" style={{ pointerEvents: 'none' }} />
+                      <circle cx={node.x} cy={node.y} r={fSelectedNodeId === node.id ? 9 : 6} fill={fSelectedNodeId === node.id ? theme.accent : "#fff"} stroke="#000" strokeWidth="2" style={{ pointerEvents: 'none' }} />
                       <text x={node.x + 10} y={node.y - 10} fill={theme.textMain} fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
                     </g>
                   ))}
@@ -1339,7 +1346,7 @@ function App() {
                           )}
                           {Number(force.fx) !== 0 && (
                             <>
-                              <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {fForceUnit}</text>
                             </>
                           )}
