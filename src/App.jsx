@@ -15,6 +15,7 @@ function App() {
     primary: '#000000',       
     accent: '#00BFFF',        
     supportOrange: '#FFA500', 
+    udlOrange: '#FFA500',     // สีส้มสำหรับแรงกระจาย (UDL) แบบในภาพตัวอย่าง
     border: '#E0E0E0',
     memberGray: '#000000',    
     lightGray: '#F9F9F9'
@@ -578,7 +579,7 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
-        // 1. เพิ่ม markerEnd เพื่อให้หัวลูกศรโผล่
+        // เพิ่ม markerEnd="url(#arrowUDL)" เพื่อให้หัวลูกศรโผล่มาแน่นอน
         arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
@@ -594,7 +595,7 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startX = dirX > 0 ? ax - 35 : ax + 35; const endX = dirX > 0 ? ax - 5 : ax + 5;
-        // 1. เพิ่ม markerEnd เพื่อให้หัวลูกศรโผล่
+        // เพิ่ม markerEnd="url(#arrowUDL)" เพื่อให้หัวลูกศรโผล่
         arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
@@ -613,7 +614,7 @@ function App() {
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      {/* 2. แสดงข้อความ CHU CALC ตอนโหลด 3 วิ */}
+      {/* 2. หน้าจอโหลด 3 วินาที แสดงข้อความ CHU CALC */}
       {isAnalyzing && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '70px', height: '70px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
@@ -1347,7 +1348,7 @@ function App() {
                           )}
                           {Number(force.fx) !== 0 && (
                             <>
-                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={force.fx} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {fForceUnit}</text>
                             </>
                           )}
