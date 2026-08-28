@@ -4,9 +4,6 @@ import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 import './App.css'
 
 function App() {
-  // ==========================================
-  // STATE ควบคุมการเปลี่ยนหน้า (Home / Statics)
-  // ==========================================
   const [currentView, setCurrentView] = useState('home')
   const [activeTab, setActiveTab] = useState('beam')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -131,7 +128,7 @@ function App() {
         }),
         ei: useEI ? calculatedEI : null,
         unit: forceUnit,
-        analysis_type: "determinate" // บังคับเป็น determinate เสมอสำหรับวิชา Statics
+        analysis_type: "determinate"
       };
       
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
@@ -576,18 +573,18 @@ function App() {
     const numArrows = Math.max(Math.floor(length / 25), 3);
     const cx = (x1 + x2) / 2; const cy = (y1 + y2) / 2;
     const unit = activeTab === 'frame' ? fForceUnit : forceUnit;
-    const markerId = "url(#arrowUDL_Orange)";
+    const markerId = "url(#arrowUDL)";
 
     if (wy && wy !== 0) {
       const arrows = []; const dirY = wy > 0 ? 1 : -1;
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
-        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
+        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wy-group">
-          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
+          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.accent} strokeWidth="1.5" strokeDasharray="5,5" />
           {arrows}
           <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
         </g>
@@ -598,11 +595,11 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startX = dirX > 0 ? ax - 35 : ax + 35; const endX = dirX > 0 ? ax - 5 : ax + 5;
-        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
+        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wx-group">
-          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
+          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.accent} strokeWidth="1.5" strokeDasharray="5,5" />
           {arrows}
           <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
         </g>
@@ -623,8 +620,6 @@ function App() {
         <p style={{ fontStyle: 'italic', color: '#555', fontSize: '1.2rem', marginBottom: '50px' }}>Engineering Statics & Structural Suite</p>
         
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '30px', maxWidth: '800px', width: '100%', padding: '0 20px' }}>
-          
-          {/* Card 1: Active */}
           <div 
             onClick={() => setCurrentView('statics')}
             style={{ backgroundColor: '#fff', border: `2px solid ${theme.textMain}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 20px rgba(0,0,0,0.08)', transition: 'transform 0.2s' }}
@@ -634,25 +629,18 @@ function App() {
             <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem' }}>1. Engineering Mechanics Statics</h2>
             <p style={{ margin: 0, color: '#666', fontSize: '0.95rem' }}>Beam, Truss, and Frame Equilibrium Analysis.</p>
           </div>
-
-          {/* Card 2: Disabled */}
           <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
             <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>2. Mechanics of Materials</h2>
             <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
           </div>
-
-          {/* Card 3: Disabled */}
           <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
             <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>3. Theory of Structures</h2>
             <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
           </div>
-
-          {/* Card 4: Disabled */}
           <div style={{ backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
             <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>4. Structural Analysis</h2>
             <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Coming Soon (Locked)</p>
           </div>
-
         </div>
       </div>
     )
@@ -730,8 +718,8 @@ function App() {
               </div>
               <svg viewBox="0 0 1000 180" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                 <defs>
-                  <marker id="arrowUDLB" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-                  <marker id="arrowUDL_Orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.udlOrange} /></marker>
+                  <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                  <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                 </defs>
                 <line x1="50" y1="140" x2="950" y2="140" stroke={theme.border} strokeWidth="1" strokeDasharray="5,5" />
                 <text x="500" y="165" textAnchor="middle" fill={theme.textMain} fontSize="14">L = {safeBeamLength} m</text>
@@ -752,7 +740,7 @@ function App() {
                   if (load.type === 'point') {
                     return (
                       <g key={load.id}>
-                        <line x1={getSvgX(load.x)} y1="20" x2={getSvgX(load.x)} y2="70" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowUDLB)" />
+                        <line x1={getSvgX(load.x)} y1="20" x2={getSvgX(load.x)} y2="70" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                         <text x={getSvgX(load.x)} y="15" textAnchor="middle" fontSize="14" fill={theme.textMain} fontWeight="bold">P = {load.magnitude} {forceUnit}</text>
                       </g>
                     )
@@ -761,7 +749,7 @@ function App() {
                     const isCW = load.direction === 'cw';
                     return (
                       <g key={load.id}>
-                        <path d={isCW ? `M ${mx-20} 40 A 20 20 0 0 1 ${mx+20} 40` : `M ${mx+20} 40 A 20 20 0 0 0 ${mx-20} 40`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowUDLB)" />
+                        <path d={isCW ? `M ${mx-20} 40 A 20 20 0 0 1 ${mx+20} 40` : `M ${mx+20} 40 A 20 20 0 0 0 ${mx-20} 40`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                         <text x={mx} y="20" textAnchor="middle" fontSize="14" fill={theme.textMain} fontWeight="bold">M = {load.magnitude} {forceUnit}.m</text>
                       </g>
                     )
@@ -776,6 +764,11 @@ function App() {
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fff' }}>
                 <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
                 <svg viewBox="0 0 1000 150" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
+                  <defs>
+                    <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
+                    <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                    <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                  </defs>
                   <rect x="50" y="65" width="900" height="12" fill="#EEEEEE" stroke={theme.textMain} strokeWidth="1.5" />
                   {beamSupports.map(sup => {
                     const rx = getSvgX(sup.x);
@@ -787,7 +780,7 @@ function App() {
                       <g key={`fbd-${sup.id}`}>
                         {sup.type !== 'free' && (
                           <>
-                            <line x1={rx} y1={120} x2={rx} y2={80} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowUDL)" />
+                            <line x1={rx} y1={120} x2={rx} y2={80} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
                             <text x={textAnchorPos} y="135" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">R_{label} = {forceVal.toFixed(2)} {forceUnit}</text>
                           </>
                         )}
@@ -800,7 +793,7 @@ function App() {
                     if (load.type === 'point') {
                       return (
                         <g key={`fbd-load-${load.id}`}>
-                          <line x1={getSvgX(load.x)} y1="15" x2={getSvgX(load.x)} y2="60" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
+                          <line x1={getSvgX(load.x)} y1="15" x2={getSvgX(load.x)} y2="60" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                           <text x={getSvgX(load.x)} y="10" textAnchor="middle" fontSize="12" fill={theme.textMain} fontWeight="bold">{load.magnitude} {forceUnit}</text>
                         </g>
                       );
@@ -809,7 +802,7 @@ function App() {
                       const isCW = load.direction === 'cw';
                       return (
                         <g key={`fbd-load-${load.id}`}>
-                          <path d={isCW ? `M ${mx-20} 30 A 20 20 0 0 1 ${mx+20} 30` : `M ${mx+20} 30 A 20 20 0 0 0 ${mx-20} 30`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
+                          <path d={isCW ? `M ${mx-20} 30 A 20 20 0 0 1 ${mx+20} 30` : `M ${mx+20} 30 A 20 20 0 0 0 ${mx-20} 30`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                           <text x={mx} y="15" textAnchor="middle" fontSize="12" fill={theme.textMain} fontWeight="bold">{load.magnitude} {forceUnit}.m</text>
                         </g>
                       );
@@ -995,7 +988,7 @@ function App() {
                 <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
                   <defs>
                     <pattern id="gridT" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                    <marker id="arrowT" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
+                    <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#gridT)" />
                   {renderDimensions(nodes, gridScale)}
@@ -1018,13 +1011,13 @@ function App() {
                       <g key={`load-${nId}`}>
                         {Number(force.fy) !== 0 && force.fy !== undefined && (
                           <>
-                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowT)" />
+                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x + 12} y={node.y - 25} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fy} {trussUnit}</text>
                           </>
                         )}
                         {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowT)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
@@ -1050,8 +1043,8 @@ function App() {
                   <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#fff' }}>
                     <defs>
                       <pattern id="gridT_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                      <marker id="arrowT_FBD" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.textMain} /></marker>
-                      <marker id="arrowT_Load" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
+                      <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
+                      <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                     </defs>
                     <rect width="100%" height="100%" fill="url(#gridT_FBD)" />
                     
@@ -1073,14 +1066,14 @@ function App() {
                         <g key={`t-fbd-sup-${nId}`}>
                           {supData.type !== 'free' && (
                             <>
-                              <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowT_FBD)" />
-                              <text x={node.x + 12} y={isFyPos ? node.y + 30 : node.y - 30} fontSize="12" fill="#000" fontWeight="bold">{fyText}</text>
+                              <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
+                              <text x={node.x + 12} y={isFyPos ? node.y + 30 : node.y - 30} fontSize="12" fill={theme.textMain} fontWeight="bold">{fyText}</text>
                             </>
                           )}
                           {(supData.type === 'pin' || supData.type === 'fixed') && (
                             <>
-                              <line x1={isFxPos ? node.x - 45 : node.x + 45} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowT_FBD)" />
-                              <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill="#000" fontWeight="bold">{fxText}</text>
+                              <line x1={isFxPos ? node.x - 45 : node.x + 45} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
+                              <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill={theme.textMain} fontWeight="bold">{fxText}</text>
                             </>
                           )}
                           <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
@@ -1093,13 +1086,13 @@ function App() {
                          <g key={`t-fbd-load-${nId}`}>
                           {Number(force.fy) !== 0 && force.fy !== undefined && (
                             <>
-                              <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowT_Load)" />
+                              <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fy} {trussUnit}</text>
                             </>
                           )}
                           {Number(force.fx) !== 0 && force.fx !== undefined && (
                             <>
-                              <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowT_Load)" />
+                              <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {trussUnit}</text>
                             </>
                           )}
@@ -1200,8 +1193,8 @@ function App() {
                 <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
                   <defs>
                     <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                    <marker id="arrowUDL_Orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.udlOrange} /></marker>
-                    <marker id="arrowFramePoint" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
+                    <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                    <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#gridF)" />
                   {renderDimensions(fNodes, fGridScale)}
@@ -1230,13 +1223,13 @@ function App() {
                           <>
                             {pointLoad.py && pointLoad.py !== 0 && (
                               <g>
-                                <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
+                                <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                                 <text x={plX + 12} y={plY - 20} fill={theme.textMain} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
                               </g>
                             )}
                             {pointLoad.px && pointLoad.px !== 0 && (
                               <g>
-                                <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
+                                <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                                 <text x={plX - 25} y={plY - 10} fill={theme.textMain} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
                               </g>
                             )}
@@ -1261,19 +1254,19 @@ function App() {
                       <g key={`load-${nId}`}>
                         {Number(force.fy) !== 0 && (
                           <>
-                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
+                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x + 12} y={node.y} fill={theme.textMain} fontSize="13" fontWeight="bold">Fy = {force.fy} {fForceUnit}</text>
                           </>
                         )}
                         {Number(force.fx) !== 0 && (
                           <>
-                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
+                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
                           </>
                         )}
                         {Number(force.mz) !== 0 && (
                           <g>
-                            <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
+                            <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x} y={node.y - 45} fill={theme.textMain} fontSize="13" fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)} {fForceUnit}.m</text>
                           </g>
                         )}
@@ -1300,9 +1293,9 @@ function App() {
                   <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#fff' }}>
                     <defs>
                       <pattern id="gridF_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                      <marker id="arrowUDL_Orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.udlOrange} /></marker>
-                      <marker id="arrowFramePoint_FBD" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.textMain} /></marker>
-                      <marker id="arrowFrameLoad_FBD" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
+                      <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                      <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
+                      <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                     </defs>
                     <rect width="100%" height="100%" fill="url(#gridF_FBD)" />
                     
@@ -1334,13 +1327,13 @@ function App() {
                             <>
                               {pointLoad.py && pointLoad.py !== 0 && (
                                 <g>
-                                  <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                                  <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                                   <text x={plX + 12} y={plY - 20} fill={theme.textMain} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
                                 </g>
                               )}
                               {pointLoad.px && pointLoad.px !== 0 && (
                                 <g>
-                                  <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                                  <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                                   <text x={plX - 25} y={plY - 10} fill={theme.textMain} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
                                 </g>
                               )}
@@ -1366,19 +1359,19 @@ function App() {
                         <g key={`f-fbd-sup-${nId}`}>
                           {(supData.type !== 'free') && (
                             <>
-                              <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowFramePoint_FBD)" />
+                              <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
                               <text x={node.x + 12} y={isFyPos ? node.y + 25 : node.y - 25} fontSize="12" fill="#000" fontWeight="bold">{fyText}</text>
                             </>
                           )}
                           {(supData.type === 'pin' || supData.type === 'fixed') && (
                             <>
-                              <line x1={isFxPos ? node.x - 40 : node.x + 40} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowFramePoint_FBD)" />
+                              <line x1={isFxPos ? node.x - 40 : node.x + 40} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
                               <text x={isFxPos ? node.x - 45 : node.x + 50} y={node.y - 8} fontSize="12" fill="#000" fontWeight="bold">{fxText}</text>
                             </>
                           )}
                           {supData.type === 'fixed' && (
                             <g>
-                              <path d={isMzCW ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowFramePoint_FBD)" />
+                              <path d={isMzCW ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
                               <text x={node.x} y={node.y - 45} fontSize="12" fill="#000" fontWeight="bold" textAnchor="middle">{mzText}</text>
                             </g>
                           )}
@@ -1393,19 +1386,19 @@ function App() {
                         <g key={`f-fbd-nload-${nId}`}>
                           {Number(force.fy) !== 0 && (
                             <>
-                              <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                              <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fy} {fForceUnit}</text>
                             </>
                           )}
                           {Number(force.fx) !== 0 && (
                             <>
-                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {fForceUnit}</text>
                             </>
                           )}
                           {Number(force.mz) !== 0 && (
                             <g>
-                              <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                              <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x} y={node.y - 45} fontSize="12" fill={theme.textMain} fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)}</text>
                             </g>
                           )}
