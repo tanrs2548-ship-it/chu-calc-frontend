@@ -10,6 +10,12 @@ function App() {
   const [showFormulaModal, setShowFormulaModal] = useState(false)
   const PIXELS_PER_GRID = 50
 
+  // Unit Converter State
+  const [convVal, setConvVal] = useState(1)
+  const [convType, setConvType] = useState('force')
+  const [fromUnit, setFromUnit] = useState('kN')
+  const [toUnit, setToUnit] = useState('N')
+
   const theme = {
     bg: '#FFFFFF',
     cardBg: '#FFFFFF',
@@ -17,10 +23,11 @@ function App() {
     primary: '#000000',       
     accent: '#00BFFF',        
     supportOrange: '#FFA500', 
+    udlOrange: '#FFA500',
     border: '#E0E0E0',
     memberGray: '#000000',    
     lightGray: '#F9F9F9',
-    disabledBg: '#F0F0F0',
+    disabledBg: '#F5F5F5',
     disabledText: '#A0A0A0'
   }
 
@@ -636,18 +643,18 @@ function App() {
     const numArrows = Math.max(Math.floor(length / 25), 3);
     const cx = (x1 + x2) / 2; const cy = (y1 + y2) / 2;
     const unit = activeTab === 'frame' ? fForceUnit : forceUnit;
-    const markerId = "url(#arrowPoint)";
+    const markerId = "url(#arrowUDL_Orange)";
 
     if (wy && wy !== 0) {
       const arrows = []; const dirY = wy > 0 ? 1 : -1;
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
-        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
+        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wy-group">
-          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.accent} strokeWidth="1.5" strokeDasharray="5,5" />
+          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
           {arrows}
           <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
         </g>
@@ -658,11 +665,11 @@ function App() {
       for (let i = 0; i <= numArrows; i++) {
         const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
         const startX = dirX > 0 ? ax - 35 : ax + 35; const endX = dirX > 0 ? ax - 5 : ax + 5;
-        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.accent} strokeWidth="2.5" markerEnd={markerId} />);
+        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wx-group">
-          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.accent} strokeWidth="1.5" strokeDasharray="5,5" />
+          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
           {arrows}
           <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
         </g>
@@ -673,6 +680,136 @@ function App() {
 
   const inputStyle = { width: '80px', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}`, marginLeft: '10px', fontFamily: '"Times New Roman", Times, serif', backgroundColor: '#fff', color: theme.textMain }
 
+  const handleConvert = () => {
+    let multiplier = 1;
+    if (convType === 'force') {
+      const rates = { 'N': 1, 'kN': 1000, 'kgf': 9.80665, 'Ton': 9806.65 };
+      multiplier = rates[fromUnit] / rates[toUnit];
+    } else {
+      const rates = { 'm': 1, 'cm': 0.01, 'mm': 0.001 };
+      multiplier = rates[fromUnit] / rates[toUnit];
+    }
+    return (convVal * multiplier).toFixed(4);
+  }
+
+  // ==========================================
+  // RENDER HOME MENU
+  // ==========================================
+  if (currentView === 'home') {
+    return (
+      <div style={{ backgroundColor: theme.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '60px', fontFamily: '"Times New Roman", Times, serif' }}>
+        
+        {/* แถบ Header โฉมใหม่ */}
+        <div style={{ textAlign: 'center', marginBottom: '50px' }}>
+          <h1 style={{ fontSize: '4.5rem', letterSpacing: '8px', color: theme.textMain, margin: '0 0 10px 0', fontWeight: 'bold' }}>CHU CALC</h1>
+          <p style={{ fontStyle: 'italic', color: '#555', fontSize: '1.2rem', margin: 0, letterSpacing: '2px', textTransform: 'uppercase' }}>Advanced Structural Engineering Suite</p>
+          <div style={{ width: '60px', height: '4px', backgroundColor: theme.supportOrange, margin: '20px auto 0 auto' }}></div>
+        </div>
+        
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '30px', maxWidth: '900px', width: '100%', padding: '0 20px' }}>
+          
+          {/* Card 1: Active */}
+          <div 
+            onClick={() => setCurrentView('statics')}
+            style={{ position: 'relative', backgroundColor: '#fff', border: `2px solid ${theme.textMain}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', transition: 'all 0.2s' }}
+            onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-5px)'; e.currentTarget.style.borderColor = theme.supportOrange; }}
+            onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = theme.textMain; }}
+          >
+            <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#28a745', backgroundColor: '#e6f4ea', padding: '4px 8px', borderRadius: '12px' }}>● Ready to Use</span>
+            <svg width="60" height="40" viewBox="0 0 100 50" style={{ marginBottom: '15px' }}>
+              <line x1="10" y1="40" x2="90" y2="40" stroke={theme.textMain} strokeWidth="4" />
+              <polygon points="10,40 5,50 15,50" fill={theme.supportOrange} />
+              <circle cx="90" cy="45" r="5" fill={theme.supportOrange} />
+              <line x1="50" y1="10" x2="50" y2="35" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+            </svg>
+            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem' }}>1. Engineering Mechanics Statics</h2>
+            <p style={{ margin: 0, color: '#666', fontSize: '0.95rem' }}>Beam, Truss, and Frame Equilibrium Analysis.</p>
+            <div style={{ marginTop: '20px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+              <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', padding: '4px 8px', borderRadius: '4px' }}>Beams</span>
+              <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', padding: '4px 8px', borderRadius: '4px' }}>Trusses</span>
+              <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', padding: '4px 8px', borderRadius: '4px' }}>Frames</span>
+            </div>
+          </div>
+
+          {/* Card 2: Disabled */}
+          <div style={{ position: 'relative', backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
+            <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#888', backgroundColor: '#e0e0e0', padding: '4px 8px', borderRadius: '12px' }}>🔒 Locked</span>
+            <svg width="50" height="40" viewBox="0 0 50 50" style={{ marginBottom: '15px', opacity: 0.5 }}>
+               <rect x="15" y="5" width="20" height="5" fill="#555" />
+               <rect x="22.5" y="10" width="5" height="30" fill="#555" />
+               <rect x="15" y="40" width="20" height="5" fill="#555" />
+            </svg>
+            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>2. Mechanics of Materials</h2>
+            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Stress, Strain, and Mohr's Circle (In Development).</p>
+          </div>
+
+          {/* Card 3: Disabled */}
+          <div style={{ position: 'relative', backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
+             <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#888', backgroundColor: '#e0e0e0', padding: '4px 8px', borderRadius: '12px' }}>🔒 Locked</span>
+            <svg width="60" height="40" viewBox="0 0 100 50" style={{ marginBottom: '15px', opacity: 0.5 }}>
+               <path d="M 10 40 Q 50 10 90 40" fill="none" stroke="#555" strokeWidth="3" strokeDasharray="4 4" />
+               <line x1="10" y1="40" x2="90" y2="40" stroke="#aaa" strokeWidth="2" />
+            </svg>
+            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>3. Theory of Structures</h2>
+            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Influence Lines & Deflection (Coming Soon).</p>
+          </div>
+
+          {/* Card 4: Disabled */}
+          <div style={{ position: 'relative', backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
+             <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#888', backgroundColor: '#e0e0e0', padding: '4px 8px', borderRadius: '12px' }}>🔒 Locked</span>
+            <svg width="50" height="40" viewBox="0 0 100 80" style={{ marginBottom: '15px', opacity: 0.5 }}>
+               <rect x="20" y="20" width="60" height="60" fill="none" stroke="#555" strokeWidth="4" />
+               <line x1="20" y1="50" x2="80" y2="50" stroke="#555" strokeWidth="4" />
+            </svg>
+            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>4. Structural Analysis</h2>
+            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Matrix Methods & Advanced Frames (Coming Soon).</p>
+          </div>
+
+        </div>
+
+        {/* Quick Unit Converter Widget */}
+        <div style={{ marginTop: '60px', padding: '25px', border: `1px solid ${theme.border}`, borderRadius: '12px', width: '100%', maxWidth: '900px', backgroundColor: theme.lightGray, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
+          <div style={{ flex: '1', minWidth: '200px' }}>
+            <h3 style={{ margin: '0 0 5px 0', fontSize: '1.2rem' }}>Quick Unit Converter</h3>
+            <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>Handy tool for engineering calculations.</p>
+          </div>
+          
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={convType} onChange={(e) => { setConvType(e.target.value); setFromUnit(e.target.value === 'force' ? 'kN' : 'm'); setToUnit(e.target.value === 'force' ? 'N' : 'cm'); }} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', fontFamily: '"Times New Roman", Times, serif' }}>
+              <option value="force">Force</option>
+              <option value="length">Length</option>
+            </select>
+            
+            <input type="number" value={convVal} onChange={(e) => setConvVal(Number(e.target.value))} style={{ width: '80px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc' }} />
+            
+            <select value={fromUnit} onChange={(e) => setFromUnit(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', fontFamily: '"Times New Roman", Times, serif' }}>
+              {convType === 'force' ? <><option value="N">N</option><option value="kN">kN</option><option value="kgf">kgf</option><option value="Ton">Ton</option></> : <><option value="m">m</option><option value="cm">cm</option><option value="mm">mm</option></>}
+            </select>
+            
+            <span style={{ fontWeight: 'bold' }}>=</span>
+            
+            <div style={{ padding: '8px 12px', backgroundColor: '#fff', border: '1px solid #000', borderRadius: '6px', fontWeight: 'bold', minWidth: '100px', textAlign: 'center' }}>
+              {handleConvert()}
+            </div>
+            
+            <select value={toUnit} onChange={(e) => setToUnit(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', fontFamily: '"Times New Roman", Times, serif' }}>
+              {convType === 'force' ? <><option value="N">N</option><option value="kN">kN</option><option value="kgf">kgf</option><option value="Ton">Ton</option></> : <><option value="m">m</option><option value="cm">cm</option><option value="mm">mm</option></>}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ marginTop: '50px', textAlign: 'center', fontSize: '0.85rem', color: '#999', paddingBottom: '20px' }}>
+          CHU CALC v2.0 | Civil Engineering Computation Engine
+        </div>
+
+      </div>
+    </div>
+  )
+}
+
+  // ==========================================
+  // RENDER STATICS SUITE
+  // ==========================================
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
@@ -681,6 +818,7 @@ function App() {
         <defs>
           <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
           <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
+          <marker id="arrowUDL_Orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.udlOrange} /></marker>
         </defs>
       </svg>
 
@@ -778,9 +916,9 @@ function App() {
             {/* Presets Bar */}
             <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Presets:</span>
-              <button onClick={() => loadBeamPreset('simply-supported')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Simply Supported (Point Load)</button>
-              <button onClick={() => loadBeamPreset('overhanging')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Overhanging Beam (UDL + Point)</button>
-              <button onClick={() => loadBeamPreset('cantilever')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Cantilever Beam</button>
+              <button onClick={() => loadBeamPreset('simply-supported')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>Simply Supported (Point Load)</button>
+              <button onClick={() => loadBeamPreset('overhanging')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>Overhanging Beam (UDL + Point)</button>
+              <button onClick={() => loadBeamPreset('cantilever')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>Cantilever Beam</button>
             </div>
 
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fff' }}>
@@ -1022,11 +1160,11 @@ function App() {
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
-            {/* Presets Bar */}
+            {/* Truss Presets */}
             <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Presets:</span>
-              <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Pratt Truss</button>
-              <button onClick={() => loadTrussPreset('warren')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Warren Truss</button>
+              <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>Pratt Truss</button>
+              <button onClick={() => loadTrussPreset('warren')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>Warren Truss</button>
             </div>
 
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
@@ -1091,7 +1229,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
@@ -1152,13 +1290,13 @@ function App() {
                           {supData.type !== 'free' && (
                             <>
                               <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
-                              <text x={node.x + 12} y={isFyPos ? node.y + 30 : node.y - 30} fontSize="12" fill={theme.textMain} fontWeight="bold">{fyText}</text>
+                              <text x={node.x + 12} y={isFyPos ? node.y + 30 : node.y - 30} fontSize="12" fill="#000" fontWeight="bold">{fyText}</text>
                             </>
                           )}
                           {(supData.type === 'pin' || supData.type === 'fixed') && (
                             <>
                               <line x1={isFxPos ? node.x - 45 : node.x + 45} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
-                              <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill={theme.textMain} fontWeight="bold">{fxText}</text>
+                              <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill="#000" fontWeight="bold">{fxText}</text>
                             </>
                           )}
                           <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
@@ -1256,10 +1394,10 @@ function App() {
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
-            {/* Presets Bar */}
+            {/* Frame Presets */}
             <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold' }}>Presets:</span>
-              <button onClick={() => loadFramePreset('portal')} style={{ padding: '4px 8px', fontSize: '0.8rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff' }}>Portal Frame (UDL on Beam)</button>
+              <button onClick={() => loadFramePreset('portal')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>Portal Frame (UDL on Beam)</button>
             </div>
 
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
@@ -1480,14 +1618,14 @@ function App() {
                           )}
                           {Number(force.fx) !== 0 && (
                             <>
-                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {fForceUnit}</text>
                             </>
                           )}
                           {Number(force.mz) !== 0 && (
                             <g>
                               <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
-                              <text x={node.x} y={node.y - 45} fill={theme.textMain} fontSize="13" fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)}</text>
+                              <text x={node.x} y={node.y - 45} fontSize="12" fill={theme.textMain} fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)}</text>
                             </g>
                           )}
                         </g>
