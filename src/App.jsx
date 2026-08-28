@@ -5,17 +5,46 @@ import './App.css'
 
 function App() {
   const [activeTab, setActiveTab] = useState('beam')
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
   const PIXELS_PER_GRID = 50
 
+  // 1. Theme พื้นหลังสีขาว และ โหลดสีฟ้าอ่อน
   const theme = {
-    bg: '#F0F8FF',
+    bg: '#FFFFFF',
     cardBg: '#FFFFFF',
     textMain: '#000000',
     primary: '#000000',       
-    accent: '#87CEFA',        
-    border: '#B0C4DE',
+    accent: '#00BFFF', // สีฟ้าอ่อนสำหรับแรงกระทำ (Deep Sky Blue)        
+    border: '#E0E0E0',
     memberGray: '#000000',    
-    lightGray: '#F4F9FB'
+    lightGray: '#F9F9F9'
+  }
+
+  // ==========================================
+  // HELPER COMPONENT: DRAW SUPPORTS (Horizontal & Vertical)
+  // ==========================================
+  const RenderSupportSVG = ({ cx, cy, type, dir, color }) => {
+    const isV = dir === 'vertical';
+    if (type === 'pin') {
+      return isV
+        ? <polygon points={`${cx-5},${cy} ${cx-20},${cy-10} ${cx-20},${cy+10}`} fill={color} />
+        : <polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} />;
+    }
+    if (type === 'roller') {
+      // 2. Roller วงกลมสีทึบคล้าย Pin
+      return isV
+        ? <g><circle cx={cx-8} cy={cy} r={6} fill={color} /><line x1={cx-18} y1={cy-15} x2={cx-18} y2={cy+15} stroke={color} strokeWidth="2" /></g>
+        : <g><circle cx={cx} cy={cy+8} r={6} fill={color} /><line x1={cx-15} y1={cy+18} x2={cx+15} y2={cy+18} stroke={color} strokeWidth="2" /></g>;
+    }
+    if (type === 'fixed') {
+      return isV
+        ? <rect x={cx-15} y={cy-15} width="10" height="30" fill={color} />
+        : <rect x={cx-15} y={cy+5} width="30" height="10" fill={color} />;
+    }
+    if (type === 'free') {
+      return <rect x={cx-6} y={cy-10} width="12" height="20" fill="none" stroke="#ccc" strokeDasharray="2,2" />;
+    }
+    return null;
   }
 
   // ==========================================
@@ -24,8 +53,8 @@ function App() {
   const [beamLength, setBeamLength] = useState(4)
   const [forceUnit, setForceUnit] = useState('kN') 
   const [beamSupports, setBeamSupports] = useState([
-    { id: 1, type: "pin", x: 0 },
-    { id: 2, type: "roller", x: 4 }
+    { id: 1, type: "pin", x: 0, direction: "horizontal" },
+    { id: 2, type: "roller", x: 4, direction: "horizontal" }
   ])
   const [beamLoads, setBeamLoads] = useState([
     { id: 1, type: "point", magnitude: 2, x: 1 },
@@ -59,11 +88,10 @@ function App() {
     ? Array.from({ length: Math.floor(safeBeamLength / 2) + 1 }, (_, i) => i * 2) 
     : Array.from({ length: Math.floor(safeBeamLength) + 1 }, (_, i) => i);
 
-  // ระบบเรียงอักษร A, B, C, D อัตโนมัติจากซ้ายไปขวา
   const sortedBeamSupports = [...beamSupports].sort((a, b) => a.x - b.x);
   const getBeamNodeLabel = (id) => String.fromCharCode(65 + sortedBeamSupports.findIndex(s => s.id === id));
 
-  const addBeamSupport = () => { saveBeamState(); setBeamSupports([...beamSupports, { id: Date.now(), type: "roller", x: safeBeamLength / 2 }]) }
+  const addBeamSupport = () => { saveBeamState(); setBeamSupports([...beamSupports, { id: Date.now(), type: "roller", x: safeBeamLength / 2, direction: "horizontal" }]) }
   const removeBeamSupport = (id) => { saveBeamState(); setBeamSupports(beamSupports.filter(s => s.id !== id)) }
   const updateBeamSupport = (id, field, value) => { saveBeamState(); setBeamSupports(beamSupports.map(s => s.id === id ? { ...s, [field]: value } : s)) }
   
@@ -87,6 +115,8 @@ function App() {
   const momentExtremes = getMaxMin(chartData, 'moment');
 
   const analyzeBeam = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 2000)); // 5. แอนิเมชันคำนวณเท่ๆ 2 วิ
     try {
       const calculatedEI = Number(beamE) * Number(beamI);
       const payload = {
@@ -108,24 +138,16 @@ function App() {
 
       const formattedData = data.x.map((xValue, index) => {
         let def = (data.deflection && data.deflection[index] !== undefined) ? data.deflection[index] : null;
-        
         if (def === null) {
           let leftSupArray = supportXPositions.filter(sx => sx <= xValue);
           let leftSup = leftSupArray.length > 0 ? Math.max(...leftSupArray) : 0;
           let rightSupArray = supportXPositions.filter(sx => sx > xValue);
-          
           if (rightSupArray.length === 0) {
-            let localX = xValue - leftSup;
-            def = -1.2 * Math.pow(localX, 1.8);
+            let localX = xValue - leftSup; def = -1.2 * Math.pow(localX, 1.8);
           } else if (leftSupArray.length === 0) {
-            let rightSup = Math.min(...rightSupArray);
-            let localX = rightSup - xValue;
-            def = -1.2 * Math.pow(localX, 1.8);
+            let rightSup = Math.min(...rightSupArray); let localX = rightSup - xValue; def = -1.2 * Math.pow(localX, 1.8);
           } else {
-            let rightSup = Math.min(...rightSupArray);
-            let spanLen = rightSup - leftSup || 1;
-            let localX = xValue - leftSup;
-            def = -1.5 * Math.sin((localX / spanLen) * Math.PI);
+            let rightSup = Math.min(...rightSupArray); let spanLen = rightSup - leftSup || 1; let localX = xValue - leftSup; def = -1.5 * Math.sin((localX / spanLen) * Math.PI);
           }
         }
         if (supportXPositions.some(sx => Math.abs(sx - xValue) < 0.01)) def = 0;
@@ -136,7 +158,6 @@ function App() {
       setBeamReactions(response.data.reactions);
       setTabularResults(response.data.tabular_results || []);
       setBeamSteps(response.data.steps || []);
-
       const defTable = [];
       for (let m = 0; m <= safeBeamLength; m += 1) {
         const closest = formattedData.reduce((prev, curr) => Math.abs(curr.x - m) < Math.abs(prev.x - m) ? curr : prev);
@@ -144,14 +165,12 @@ function App() {
         if (supportXPositions.some(sx => Math.abs(sx - m) < 0.01)) finalDef = 0;
         defTable.push({ x: m, deflection: finalDef });
       }
-      if (safeBeamLength % 1 !== 0 && !defTable.some(d => d.x === safeBeamLength)) {
-        const lastClosest = formattedData[formattedData.length - 1];
-        defTable.push({ x: safeBeamLength, deflection: lastClosest ? lastClosest.deflection : 0 });
-      }
       setDeflectionTable(defTable);
     } catch (error) {
       console.error("Error:", error);
       alert("Calculation failed! Please check inputs.");
+    } finally {
+      setIsAnalyzing(false);
     }
   }
 
@@ -193,31 +212,25 @@ function App() {
   
   const handleTrussNodeClick = (e, node) => {
     e.stopPropagation(); 
-    if (selectedNodeId === node.id) {
-      setSelectedNodeId(null);
+    if (selectedNodeId === node.id) { setSelectedNodeId(null);
     } else if (selectedNodeId) {
       const isDup = elements.some(el => (el.n1 === selectedNodeId && el.n2 === node.id) || (el.n1 === node.id && el.n2 === selectedNodeId));
       if (!isDup) { saveTrussState(); setElements([...elements, { id: Date.now(), n1: selectedNodeId, n2: node.id }]); }
       setSelectedNodeId(node.id); 
-    } else {
-      setSelectedNodeId(node.id);
-    }
+    } else { setSelectedNodeId(node.id); }
   };
 
   const handleTrussCanvasClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect()
     const x = snapToGrid(e.clientX - rect.left), y = snapToGrid(e.clientY - rect.top)
     const clickedExistingNode = nodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
-    
     if (clickedExistingNode) {
       if (selectedNodeId && selectedNodeId !== clickedExistingNode.id) {
         const isDup = elements.some(el => (el.n1 === selectedNodeId && el.n2 === clickedExistingNode.id) || (el.n1 === clickedExistingNode.id && el.n2 === selectedNodeId));
         if (!isDup) { saveTrussState(); setElements([...elements, { id: Date.now(), n1: selectedNodeId, n2: clickedExistingNode.id }]); }
       }
-      setSelectedNodeId(clickedExistingNode.id);
-      return;
+      setSelectedNodeId(clickedExistingNode.id); return;
     }
-
     const existingNode = nodes.find(n => n.x === x && n.y === y);
     if (!existingNode) {
       saveTrussState();
@@ -226,9 +239,7 @@ function App() {
       setNodes([...nodes, { id: newNodeId, name: nodeName, x, y }]);
       if (selectedNodeId) setElements([...elements, { id: Date.now() + 1, n1: selectedNodeId, n2: newNodeId }]);
       setSelectedNodeId(newNodeId);
-    } else {
-      setSelectedNodeId(null); 
-    }
+    } else { setSelectedNodeId(null); }
   }
 
   const handleSupportTypeChange = (nodeId, type) => {
@@ -247,156 +258,92 @@ function App() {
       const nl = { ...prev };
       if (value === '') {
         if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; }
-      } else {
-        nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) };
-      }
+      } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; }
       return nl;
     });
   }
 
   const clearTrussCanvas = () => { saveTrussState(); setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
 
-  const calculateTrussDimensions = () => {
-    if (!nodes || nodes.length === 0) return { totalWidth: 0, totalHeight: 0 };
-    const minX = Math.min(...nodes.map(n => n.x)), maxX = Math.max(...nodes.map(n => n.x));
-    const minY = Math.min(...nodes.map(n => n.y)), maxY = Math.max(...nodes.map(n => n.y));
-    const totalWidth = ((maxX - minX) / PIXELS_PER_GRID) * gridScale;
-    const totalHeight = ((maxY - minY) / PIXELS_PER_GRID) * gridScale;
-    return { totalWidth, totalHeight };
-  };
-
-  const trussDims = calculateTrussDimensions();
-
   const autoCleanMesh = (nds, els) => {
     let generated = [];
     const getDist = (p1, p2) => Math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2);
     const isBetween = (p, a, b) => Math.abs(getDist(a, p) + getDist(p, b) - getDist(a, b)) < 0.1;
-
     els.forEach(el => {
-      const n1 = nds.find(n => n.id === el.n1);
-      const n2 = nds.find(n => n.id === el.n2);
+      const n1 = nds.find(n => n.id === el.n1); const n2 = nds.find(n => n.id === el.n2);
       if (!n1 || !n2) return;
-
       let onSeg = nds.filter(n => n.id !== n1.id && n.id !== n2.id && isBetween(n, n1, n2));
-      if (onSeg.length === 0) {
-        generated.push({ n1: Math.min(n1.id, n2.id), n2: Math.max(n1.id, n2.id) });
+      if (onSeg.length === 0) { generated.push({ n1: Math.min(n1.id, n2.id), n2: Math.max(n1.id, n2.id) });
       } else {
         onSeg.sort((a, b) => getDist(n1, a) - getDist(n1, b));
         let path = [n1, ...onSeg, n2];
-        for (let i = 0; i < path.length - 1; i++) {
-          generated.push({ n1: Math.min(path[i].id, path[i+1].id), n2: Math.max(path[i].id, path[i+1].id) });
-        }
+        for (let i = 0; i < path.length - 1; i++) { generated.push({ n1: Math.min(path[i].id, path[i+1].id), n2: Math.max(path[i].id, path[i+1].id) }); }
       }
     });
-
-    const unique = [];
-    const seen = new Set();
+    const unique = []; const seen = new Set();
     generated.forEach((el, index) => {
       const key = `${el.n1}-${el.n2}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        unique.push({ id: Date.now() + index, n1: el.n1, n2: el.n2 });
-      }
+      if (!seen.has(key)) { seen.add(key); unique.push({ id: Date.now() + index, n1: el.n1, n2: el.n2 }); }
     });
     return unique;
   };
 
   const runTrussAnalysis = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 2000));
     try {
       const cleanedElements = autoCleanMesh(nodes, elements);
       setElements(cleanedElements);
-
-      const tRxns = {};
-      const tSteps = [];
+      const tRxns = {}; const tSteps = [];
       tSteps.push("=== ENGINEERING STATICS : TRUSS REACTIONS ===");
       let sumFx = 0; let sumFy = 0;
-      Object.entries(trussLoads).forEach(([id, f]) => {
-          sumFx += Number(f.fx || 0);
-          sumFy -= Number(f.fy || 0); 
-      });
-
+      Object.entries(trussLoads).forEach(([id, f]) => { sumFx += Number(f.fx || 0); sumFy -= Number(f.fy || 0); });
       const sups = Object.entries(trussSupports);
       if(sups.length > 0) {
-          const pivotId = sups[0][0];
-          const pivotNode = nodes.find(n => n.id == pivotId);
-          let mPivot = 0;
+          const pivotId = sups[0][0]; const pivotNode = nodes.find(n => n.id == pivotId); let mPivot = 0;
           Object.entries(trussLoads).forEach(([id, f]) => {
               const n = nodes.find(x => x.id == id);
-              const dx = (n.x - pivotNode.x)/PIXELS_PER_GRID * gridScale;
-              const dy = -(n.y - pivotNode.y)/PIXELS_PER_GRID * gridScale;
-              const fx = Number(f.fx||0); const fy = -Number(f.fy||0); 
-              mPivot += (fy * dx) - (fx * dy);
+              const dx = (n.x - pivotNode.x)/PIXELS_PER_GRID * gridScale; const dy = -(n.y - pivotNode.y)/PIXELS_PER_GRID * gridScale;
+              mPivot += (-Number(f.fy||0) * dx) - (Number(f.fx||0) * dy);
           });
-          
           let unknowns = 0;
           sups.forEach(([id, data]) => {
-              if(data.type==='pin') unknowns += 2;
-              if(data.type==='roller') unknowns += 1;
-              if(data.type==='fixed') unknowns += 3;
+              if(data.type==='pin') unknowns += 2; if(data.type==='roller') unknowns += 1; if(data.type==='fixed') unknowns += 3;
           });
-          
           if (unknowns === 3 && sups.length === 2) {
               let pinId, rollerId;
               if(trussSupports[sups[0][0]].type === 'pin') { pinId = sups[0][0]; rollerId = sups[1][0]; }
               else { pinId = sups[1][0]; rollerId = sups[0][0]; }
-              
-              const pNode = nodes.find(n => n.id == pinId);
-              const rNode = nodes.find(n => n.id == rollerId);
-              
+              const pNode = nodes.find(n => n.id == pinId); const rNode = nodes.find(n => n.id == rollerId);
               let mPin = 0;
               Object.entries(trussLoads).forEach(([id, f]) => {
                   const n = nodes.find(x => x.id == id);
-                  const dx = (n.x - pNode.x)/PIXELS_PER_GRID * gridScale;
-                  const dy = -(n.y - pNode.y)/PIXELS_PER_GRID * gridScale;
+                  const dx = (n.x - pNode.x)/PIXELS_PER_GRID * gridScale; const dy = -(n.y - pNode.y)/PIXELS_PER_GRID * gridScale;
                   mPin += (-Number(f.fy||0) * dx) - (Number(f.fx||0) * dy);
               });
-              
-              const dxR = (rNode.x - pNode.x)/PIXELS_PER_GRID * gridScale;
-              let r_roller_y = 0;
+              const dxR = (rNode.x - pNode.x)/PIXELS_PER_GRID * gridScale; let r_roller_y = 0;
               if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
-              const r_pin_y = -sumFy - r_roller_y;
-              const r_pin_x = -sumFx;
-              
-              tRxns[pinId] = { fx: r_pin_x, fy: r_pin_y };
-              tRxns[rollerId] = { fx: 0, fy: r_roller_y };
-              
-              tSteps.push(`[Step 1] ∑Fx = 0`);
-              tSteps.push(`➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0`);
-              tSteps.push(`➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${trussUnit}`);
-              tSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0`);
-              tSteps.push(`➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0`);
-              tSteps.push(`➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${trussUnit}`);
-              tSteps.push(`\n[Step 3] ∑Fy = 0`);
-              tSteps.push(`➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0`);
-              tSteps.push(`➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${trussUnit}`);
-          } else if (unknowns === 3 && sups.length === 1 && trussSupports[sups[0][0]].type === 'fixed') {
-              const fId = sups[0][0]; const fNode = nodes.find(n => n.id == fId);
-              tRxns[fId] = { fx: -sumFx, fy: -sumFy, mz: -mPivot };
-              tSteps.push(`[Step 1] ∑Fx = 0\n➔ R_${fNode.name}x = ${(-sumFx).toFixed(2)} ${trussUnit}`);
-              tSteps.push(`\n[Step 2] ∑Fy = 0\n➔ R_${fNode.name}y = ${(-sumFy).toFixed(2)} ${trussUnit}`);
-              tSteps.push(`\n[Step 3] ∑M_${fNode.name} = 0\n➔ M_${fNode.name} = ${(-mPivot).toFixed(2)} ${trussUnit}.m`);
+              const r_pin_y = -sumFy - r_roller_y; const r_pin_x = -sumFx;
+              tRxns[pinId] = { fx: r_pin_x, fy: r_pin_y }; tRxns[rollerId] = { fx: 0, fy: r_roller_y };
+              tSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${trussUnit}`);
+              tSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${trussUnit}`);
+              tSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${trussUnit}`);
           } else {
-              tSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)}`);
-              tSteps.push("Note: Structure is statically indeterminate or has non-standard supports.");
+              tSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate or has non-standard supports.`);
           }
       } else { tSteps.push("No supports defined."); }
       setTrussLocalData({ steps: tSteps, rxns: tRxns });
 
-      const calculatedEI = Number(trussE) * Number(trussI);
       const payload = {
         nodes: nodes.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
         elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })), 
-        supports: trussSupports,
-        loads: trussLoads,
-        unit: trussUnit,
-        ei: trussUseEI ? calculatedEI : null
+        supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: trussUseEI ? (Number(trussE) * Number(trussI)) : null
       };
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
       setTrussAnalysisResult(response.data);
     } catch (error) {
-      console.error("Truss Analysis Error:", error);
-      alert("Truss calculation failed! Please check your FastAPI backend.");
-    }
+      console.error("Truss Analysis Error:", error); alert("Truss calculation failed! Please check your FastAPI backend.");
+    } finally { setIsAnalyzing(false); }
   }
 
   // ==========================================
@@ -436,52 +383,37 @@ function App() {
   const fSelectedElement = fElements.find(e => e.id === fSelectedElementId);
 
   const handleFrameNodeClick = (e, node) => {
-    e.stopPropagation();
-    setFSelectedElementId(null);
-    if (fSelectedNodeId === node.id) {
-      setFSelectedNodeId(null);
+    e.stopPropagation(); setFSelectedElementId(null);
+    if (fSelectedNodeId === node.id) { setFSelectedNodeId(null);
     } else if (fSelectedNodeId) {
       const isDup = fElements.some(el => (el.n1 === fSelectedNodeId && el.n2 === node.id) || (el.n1 === node.id && el.n2 === fSelectedNodeId));
       if (!isDup) { saveFrameState(); setFElements([...fElements, { id: Date.now(), n1: fSelectedNodeId, n2: node.id }]); }
       setFSelectedNodeId(node.id);
-    } else {
-      setFSelectedNodeId(node.id);
-    }
+    } else { setFSelectedNodeId(node.id); }
   }
 
-  const handleFrameElementClick = (e, el) => {
-    e.stopPropagation();
-    setFSelectedNodeId(null);
-    setFSelectedElementId(fSelectedElementId === el.id ? null : el.id);
-  }
+  const handleFrameElementClick = (e, el) => { e.stopPropagation(); setFSelectedNodeId(null); setFSelectedElementId(fSelectedElementId === el.id ? null : el.id); }
 
   const handleFrameCanvasClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect()
     const x = snapToGrid(e.clientX - rect.left), y = snapToGrid(e.clientY - rect.top)
     const clickedExistingNode = fNodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
-    
     if (clickedExistingNode) {
       if (fSelectedNodeId && fSelectedNodeId !== clickedExistingNode.id) {
         const isDup = fElements.some(el => (el.n1 === fSelectedNodeId && el.n2 === clickedExistingNode.id) || (el.n1 === clickedExistingNode.id && el.n2 === fSelectedNodeId));
         if (!isDup) { saveFrameState(); setFElements([...fElements, { id: Date.now(), n1: fSelectedNodeId, n2: clickedExistingNode.id }]); }
       }
-      setFSelectedNodeId(clickedExistingNode.id);
-      return;
+      setFSelectedNodeId(clickedExistingNode.id); return;
     }
-
     const existingNode = fNodes.find(n => n.x === x && n.y === y);
     if (!existingNode) {
-      saveFrameState();
-      setFSelectedElementId(null);
+      saveFrameState(); setFSelectedElementId(null);
       const newNodeId = Date.now();
       const nodeName = fNodes.length < 26 ? String.fromCharCode(65 + fNodes.length) : `N${fNodes.length}`;
       setFNodes([...fNodes, { id: newNodeId, name: nodeName, x, y }]);
       if (fSelectedNodeId) setFElements([...fElements, { id: Date.now() + 1, n1: fSelectedNodeId, n2: newNodeId }]);
       setFSelectedNodeId(newNodeId);
-    } else {
-      setFSelectedNodeId(null);
-      setFSelectedElementId(null);
-    }
+    } else { setFSelectedNodeId(null); setFSelectedElementId(null); }
   }
 
   const handleFSupportTypeChange = (nodeId, type) => {
@@ -493,181 +425,95 @@ function App() {
       return ns;
     });
   }
-
-  const handleFLoadChange = (nodeId, axis, value) => {
-    saveFrameState();
-    setFLoads(prev => {
-      const nl = { ...prev };
-      if (value === '') {
-        if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; }
-      } else {
-        nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) };
-      }
-      return nl;
-    });
-  }
-
-  const handleFDistLoadChange = (elId, axis, value) => {
-    saveFrameState();
-    setFDistLoads(prev => {
-      const nd = { ...prev };
-      if (value === '') {
-        if (nd[elId]) { delete nd[elId][axis]; if (Object.keys(nd[elId]).length === 0) delete nd[elId]; }
-      } else {
-        nd[elId] = { ...(nd[elId] || {}), [axis]: Number(value) };
-      }
-      return nd;
-    });
-  }
-
-  const handleElementPointLoadChange = (elId, field, value) => {
-    saveFrameState();
-    setFPointLoadsOnElement(prev => {
-      const np = { ...prev };
-      if (value === '') {
-        if (np[elId]) { delete np[elId][field]; if (Object.keys(np[elId]).length === 0) delete np[elId]; }
-      } else {
-        np[elId] = { ...(np[elId] || {}), [field]: Number(value) };
-      }
-      return np;
-    });
-  }
-
-  const handleDeleteFrameNode = (nodeId) => {
-    saveFrameState();
-    setFNodes(fNodes.filter(n => n.id !== nodeId));
-    setFElements(fElements.filter(el => el.n1 !== nodeId && el.n2 !== nodeId));
-    const ns={...fSupports}; delete ns[nodeId]; setFSupports(ns);
-    const nl={...fLoads}; delete nl[nodeId]; setFLoads(nl);
-    setFSelectedNodeId(null);
-  }
-
+  const handleFLoadChange = (nodeId, axis, value) => { saveFrameState(); setFLoads(prev => { const nl = { ...prev }; if (value === '') { if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; } } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; } return nl; }); }
+  const handleFDistLoadChange = (elId, axis, value) => { saveFrameState(); setFDistLoads(prev => { const nd = { ...prev }; if (value === '') { if (nd[elId]) { delete nd[elId][axis]; if (Object.keys(nd[elId]).length === 0) delete nd[elId]; } } else { nd[elId] = { ...(nd[elId] || {}), [axis]: Number(value) }; } return nd; }); }
+  const handleElementPointLoadChange = (elId, field, value) => { saveFrameState(); setFPointLoadsOnElement(prev => { const np = { ...prev }; if (value === '') { if (np[elId]) { delete np[elId][field]; if (Object.keys(np[elId]).length === 0) delete np[elId]; } } else { np[elId] = { ...(np[elId] || {}), [field]: Number(value) }; } return np; }); }
   const clearFrameCanvas = () => { saveFrameState(); setFNodes([]); setFElements([]); setFSupports({}); setFLoads({}); setFDistLoads({}); setFPointLoadsOnElement({}); setFSelectedNodeId(null); setFSelectedElementId(null); setFrameLocalData({ steps: [], rxns: {}, analyzed: false }); }
 
-  const runFrameStaticsAnalysis = () => {
-    const fRxns = {};
-    const fSteps = [];
-    fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
-    let sumFx = 0; let sumFy = 0;
-    
-    const sups = Object.entries(fSupports);
-    if(sups.length > 0) {
-        const pivotId = sups[0][0];
-        const pivotNode = fNodes.find(n => n.id == pivotId);
-        let mPivot = 0;
-        
-        Object.entries(fLoads).forEach(([id, f]) => {
-            const n = fNodes.find(x => x.id == id);
-            const fx = Number(f.fx||0); const fy = -Number(f.fy||0); const mz = Number(f.mz||0);
-            sumFx += fx; sumFy += fy;
-            const dx = (n.x - pivotNode.x)/PIXELS_PER_GRID * fGridScale;
-            const dy = -(n.y - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
-            mPivot += (fy * dx) - (fx * dy) + mz;
-        });
-        Object.entries(fDistLoads).forEach(([elId, dist]) => {
-            const el = fElements.find(e => e.id == elId);
-            const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
-            const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
-            const wx = Number(dist.wx||0); const wy = -Number(dist.wy||0);
-            const tfx = wx * L_m; const tfy = wy * L_m;
-            sumFx += tfx; sumFy += tfy;
-            const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
-            const dx = (cx - pivotNode.x)/PIXELS_PER_GRID * fGridScale;
-            const dy = -(cy - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
-            mPivot += (tfy * dx) - (tfx * dy);
-        });
-        Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
-            const el = fElements.find(e => e.id == elId);
-            const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
-            const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
-            const px = Number(pLoad.px||0); const py = -Number(pLoad.py||0);
-            sumFx += px; sumFy += py;
-            const ratio = L_m > 0 ? Number(pLoad.x||0) / L_m : 0;
-            const lx = n1.x + (n2.x - n1.x)*ratio; const ly = n1.y + (n2.y - n1.y)*ratio;
-            const dx = (lx - pivotNode.x)/PIXELS_PER_GRID * fGridScale;
-            const dy = -(ly - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
-            mPivot += (py * dx) - (px * dy);
-        });
+  const runFrameStaticsAnalysis = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const fRxns = {}; const fSteps = []; fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
+      let sumFx = 0; let sumFy = 0;
+      const sups = Object.entries(fSupports);
+      if(sups.length > 0) {
+          const pivotId = sups[0][0]; const pivotNode = fNodes.find(n => n.id == pivotId); let mPivot = 0;
+          Object.entries(fLoads).forEach(([id, f]) => {
+              const n = fNodes.find(x => x.id == id);
+              const fx = Number(f.fx||0); const fy = -Number(f.fy||0); const mz = Number(f.mz||0);
+              sumFx += fx; sumFy += fy;
+              const dx = (n.x - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(n.y - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
+              mPivot += (fy * dx) - (fx * dy) + mz;
+          });
+          Object.entries(fDistLoads).forEach(([elId, dist]) => {
+              const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
+              const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
+              const wx = Number(dist.wx||0); const wy = -Number(dist.wy||0);
+              const tfx = wx * L_m; const tfy = wy * L_m;
+              sumFx += tfx; sumFy += tfy;
+              const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
+              const dx = (cx - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
+              mPivot += (tfy * dx) - (tfx * dy);
+          });
+          Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
+              const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
+              const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
+              const px = Number(pLoad.px||0); const py = -Number(pLoad.py||0);
+              sumFx += px; sumFy += py;
+              const ratio = L_m > 0 ? Number(pLoad.x||0) / L_m : 0;
+              const lx = n1.x + (n2.x - n1.x)*ratio; const ly = n1.y + (n2.y - n1.y)*ratio;
+              const dx = (lx - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(ly - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
+              mPivot += (py * dx) - (px * dy);
+          });
 
-        let unknowns = 0;
-        sups.forEach(([id, data]) => {
-            if(data.type==='pin') unknowns += 2;
-            if(data.type==='roller') unknowns += 1;
-            if(data.type==='fixed') unknowns += 3;
-        });
+          let unknowns = 0;
+          sups.forEach(([id, data]) => { if(data.type==='pin') unknowns += 2; if(data.type==='roller') unknowns += 1; if(data.type==='fixed') unknowns += 3; });
 
-        if (unknowns === 3 && sups.length === 2) {
-            let pinId, rollerId;
-            if(fSupports[sups[0][0]].type === 'pin') { pinId = sups[0][0]; rollerId = sups[1][0]; }
-            else { pinId = sups[1][0]; rollerId = sups[0][0]; }
-            
-            const pNode = fNodes.find(n => n.id == pinId);
-            const rNode = fNodes.find(n => n.id == rollerId);
-            
-            let mPin = mPivot; 
-            if (pivotId !== pinId) {
-                mPin = 0;
-                Object.entries(fLoads).forEach(([id, f]) => {
-                    const n = fNodes.find(x => x.id == id);
-                    const fx = Number(f.fx||0); const fy = -Number(f.fy||0); const mz = Number(f.mz||0);
-                    const dx = (n.x - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(n.y - pNode.y)/PIXELS_PER_GRID * fGridScale;
-                    mPin += (fy * dx) - (fx * dy) + mz;
-                });
-                Object.entries(fDistLoads).forEach(([elId, dist]) => {
-                    const el = fElements.find(e => e.id == elId);
-                    const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
-                    const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
-                    const tfx = Number(dist.wx||0) * L_m; const tfy = -Number(dist.wy||0) * L_m;
-                    const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
-                    const dx = (cx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pNode.y)/PIXELS_PER_GRID * fGridScale;
-                    mPin += (tfy * dx) - (tfx * dy);
-                });
-                Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
-                    const el = fElements.find(e => e.id == elId);
-                    const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
-                    const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
-                    const px = Number(pLoad.px||0); const py = -Number(pLoad.py||0);
-                    const ratio = L_m > 0 ? Number(pLoad.x||0) / L_m : 0;
-                    const lx = n1.x + (n2.x - n1.x)*ratio; const ly = n1.y + (n2.y - n1.y)*ratio;
-                    const dx = (lx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(ly - pNode.y)/PIXELS_PER_GRID * fGridScale;
-                    mPin += (py * dx) - (px * dy);
-                });
-            }
-            
-            const dxR = (rNode.x - pNode.x)/PIXELS_PER_GRID * fGridScale;
-            let r_roller_y = 0;
-            if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
-            
-            const r_pin_y = -sumFy - r_roller_y;
-            const r_pin_x = -sumFx;
-            
-            fRxns[pinId] = { fx: r_pin_x, fy: r_pin_y };
-            fRxns[rollerId] = { fx: 0, fy: r_roller_y };
-            
-            fSteps.push(`[Step 1] ∑Fx = 0`);
-            fSteps.push(`➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0`);
-            fSteps.push(`➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${fForceUnit}`);
-            fSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0`);
-            fSteps.push(`➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0`);
-            fSteps.push(`➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${fForceUnit}`);
-            fSteps.push(`\n[Step 3] ∑Fy = 0`);
-            fSteps.push(`➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0`);
-            fSteps.push(`➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${fForceUnit}`);
-
-        } else if (unknowns === 3 && sups.length === 1 && fSupports[sups[0][0]].type === 'fixed') {
-            const fId = sups[0][0]; const fNode = fNodes.find(n => n.id == fId);
-            fRxns[fId] = { fx: -sumFx, fy: -sumFy, mz: -mPivot };
-            fSteps.push(`[Step 1] ∑Fx = 0 ➔ R_${fNode.name}x = ${(-sumFx).toFixed(2)} ${fForceUnit}`);
-            fSteps.push(`[Step 2] ∑Fy = 0 ➔ R_${fNode.name}y = ${(-sumFy).toFixed(2)} ${fForceUnit}`);
-            fSteps.push(`[Step 3] ∑M_${fNode.name} = 0 ➔ M_${fNode.name} = ${(-mPivot).toFixed(2)} ${fForceUnit}.m`);
-        } else {
-            fSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)}`);
-            fSteps.push("Note: Structure is statically indeterminate or has non-standard supports.");
-            fSteps.push("Advanced matrix analysis required for internal forces.");
-        }
-    } else { fSteps.push("No supports defined."); }
-    
-    setFrameLocalData({ steps: fSteps, rxns: fRxns, analyzed: true });
+          if (unknowns === 3 && sups.length === 2) {
+              let pinId, rollerId;
+              if(fSupports[sups[0][0]].type === 'pin') { pinId = sups[0][0]; rollerId = sups[1][0]; }
+              else { pinId = sups[1][0]; rollerId = sups[0][0]; }
+              const pNode = fNodes.find(n => n.id == pinId); const rNode = fNodes.find(n => n.id == rollerId);
+              let mPin = mPivot; 
+              if (pivotId !== pinId) {
+                  mPin = 0;
+                  Object.entries(fLoads).forEach(([id, f]) => {
+                      const n = fNodes.find(x => x.id == id);
+                      const fx = Number(f.fx||0); const fy = -Number(f.fy||0); const mz = Number(f.mz||0);
+                      const dx = (n.x - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(n.y - pNode.y)/PIXELS_PER_GRID * fGridScale;
+                      mPin += (fy * dx) - (fx * dy) + mz;
+                  });
+                  Object.entries(fDistLoads).forEach(([elId, dist]) => {
+                      const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
+                      const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
+                      const tfx = Number(dist.wx||0) * L_m; const tfy = -Number(dist.wy||0) * L_m;
+                      const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
+                      const dx = (cx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pNode.y)/PIXELS_PER_GRID * fGridScale;
+                      mPin += (tfy * dx) - (tfx * dy);
+                  });
+                  Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
+                      const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
+                      const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
+                      const px = Number(pLoad.px||0); const py = -Number(pLoad.py||0);
+                      const ratio = L_m > 0 ? Number(pLoad.x||0) / L_m : 0;
+                      const lx = n1.x + (n2.x - n1.x)*ratio; const ly = n1.y + (n2.y - n1.y)*ratio;
+                      const dx = (lx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(ly - pNode.y)/PIXELS_PER_GRID * fGridScale;
+                      mPin += (py * dx) - (px * dy);
+                  });
+              }
+              const dxR = (rNode.x - pNode.x)/PIXELS_PER_GRID * fGridScale; let r_roller_y = 0;
+              if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
+              const r_pin_y = -sumFy - r_roller_y; const r_pin_x = -sumFx;
+              fRxns[pinId] = { fx: r_pin_x, fy: r_pin_y }; fRxns[rollerId] = { fx: 0, fy: r_roller_y };
+              
+              fSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${fForceUnit}`);
+              fSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${fForceUnit}`);
+              fSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${fForceUnit}`);
+          } else { fSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate.`); }
+      } else { fSteps.push("No supports defined."); }
+      setFrameLocalData({ steps: fSteps, rxns: fRxns, analyzed: true });
+    } finally { setIsAnalyzing(false); }
   }
 
   // ==========================================
@@ -675,21 +521,13 @@ function App() {
   // ==========================================
   const renderDimensions = (nodeList, scale) => {
     if (!nodeList || nodeList.length < 2) return null;
-    const dimMaxX = Math.max(...nodeList.map(n => n.x));
-    const dimMaxY = Math.max(...nodeList.map(n => n.y));
-
-    const uniqueX = [...new Set(nodeList.map(n => n.x))].sort((a, b) => a - b);
-    const uniqueY = [...new Set(nodeList.map(n => n.y))].sort((a, b) => a - b);
-
-    const botY = dimMaxY + 45; 
-    const rightX = dimMaxX + 45; 
-
+    const dimMaxX = Math.max(...nodeList.map(n => n.x)); const dimMaxY = Math.max(...nodeList.map(n => n.y));
+    const uniqueX = [...new Set(nodeList.map(n => n.x))].sort((a, b) => a - b); const uniqueY = [...new Set(nodeList.map(n => n.y))].sort((a, b) => a - b);
+    const botY = dimMaxY + 45; const rightX = dimMaxX + 45; 
     return (
       <g style={{ pointerEvents: 'none' }}>
         {uniqueX.map((x, i) => {
-          if (i === uniqueX.length - 1) return null;
-          const nextX = uniqueX[i+1];
-          const dist = ((nextX - x) / PIXELS_PER_GRID) * scale;
+          if (i === uniqueX.length - 1) return null; const nextX = uniqueX[i+1]; const dist = ((nextX - x) / PIXELS_PER_GRID) * scale;
           if (dist === 0) return null;
           return (
             <g key={`hx-${i}`}>
@@ -701,9 +539,7 @@ function App() {
           )
         })}
         {uniqueY.map((y, i) => {
-          if (i === uniqueY.length - 1) return null;
-          const nextY = uniqueY[i+1];
-          const dist = ((nextY - y) / PIXELS_PER_GRID) * scale;
+          if (i === uniqueY.length - 1) return null; const nextY = uniqueY[i+1]; const dist = ((nextY - y) / PIXELS_PER_GRID) * scale;
           if (dist === 0) return null;
           return (
             <g key={`vy-${i}`}>
@@ -724,45 +560,35 @@ function App() {
     const length = Math.sqrt((x2 - x1)**2 + (y2 - y1)**2);
     if (length === 0) return null;
     const numArrows = Math.max(Math.floor(length / 25), 3);
-    const cx = (x1 + x2) / 2;
-    const cy = (y1 + y2) / 2;
+    const cx = (x1 + x2) / 2; const cy = (y1 + y2) / 2;
     const unit = activeTab === 'frame' ? fForceUnit : forceUnit;
     const markerId = "url(#arrowUDL)";
 
     if (wy && wy !== 0) {
-      const arrows = [];
-      const dirY = wy > 0 ? 1 : -1;
+      const arrows = []; const dirY = wy > 0 ? 1 : -1;
       for (let i = 0; i <= numArrows; i++) {
-        const t = i / numArrows;
-        const ax = x1 + (x2 - x1) * t;
-        const ay = y1 + (y2 - y1) * t;
-        const startY = dirY > 0 ? ay - 35 : ay + 35;
-        const endY = dirY > 0 ? ay - 5 : ay + 5;
-        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.textMain} strokeWidth="1.5" markerEnd={markerId} />);
+        const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
+        const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
+        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.accent} strokeWidth="2" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wy-group">
-          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.textMain} strokeWidth="1.5" />
+          <rect x={Math.min(x1, x2)} y={dirY > 0 ? Math.min(y1, y2) - 35 : Math.min(y1, y2)} width={Math.abs(x2-x1) || 5} height={35} fill={theme.accent} fillOpacity="0.15" stroke={theme.accent} strokeWidth="1" strokeDasharray="3,3" />
           {arrows}
           <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
         </g>
       );
     }
-
     if (wx && wx !== 0) {
-      const arrows = [];
-      const dirX = wx > 0 ? 1 : -1;
+      const arrows = []; const dirX = wx > 0 ? 1 : -1;
       for (let i = 0; i <= numArrows; i++) {
-        const t = i / numArrows;
-        const ax = x1 + (x2 - x1) * t;
-        const ay = y1 + (y2 - y1) * t;
-        const startX = dirX > 0 ? ax - 35 : ax + 35;
-        const endX = dirX > 0 ? ax - 5 : ax + 5;
-        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.textMain} strokeWidth="1.5" markerEnd={markerId} />);
+        const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
+        const startX = dirX > 0 ? ax - 35 : ax + 35; const endX = dirX > 0 ? ax - 5 : ax + 5;
+        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.accent} strokeWidth="2" markerEnd={markerId} />);
       }
       elements.push(
         <g key="wx-group">
-          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.textMain} strokeWidth="1.5" />
+          <rect x={dirX > 0 ? Math.min(x1, x2) - 35 : Math.min(x1, x2)} y={Math.min(y1, y2)} width={35} height={Math.abs(y2-y1) || 5} fill={theme.accent} fillOpacity="0.15" stroke={theme.accent} strokeWidth="1" strokeDasharray="3,3" />
           {arrows}
           <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
         </g>
@@ -776,70 +602,28 @@ function App() {
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      <style>{`
-        .app-bg {
-          background-color: ${theme.bg};
-          min-height: 100vh;
-          padding: 35px;
-        }
-        .report-document {
-          width: 100%;
-          max-width: 210mm;
-          margin: 0 auto 40px auto;
-          background: ${theme.cardBg};
-          padding: 20mm;
-          box-sizing: border-box;
-          box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-          border-radius: 4px;
-        }
+      {/* 5. OVERLAY SPINNER สำหรับแอนิเมชันตอนคำนวณ */}
+      {isAnalyzing && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(255,255,255,0.85)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <div style={{ width: '60px', height: '60px', border: `6px solid #f3f3f3`, borderTop: `6px solid ${theme.accent}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          <h2 style={{ marginTop: '20px', color: theme.textMain, letterSpacing: '2px' }}>Analyzing Structure...</h2>
+          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
 
+      <style>{`
+        .app-bg { background-color: ${theme.bg}; min-height: 100vh; padding: 35px; }
+        .report-document { width: 100%; max-width: 210mm; margin: 0 auto 40px auto; background: ${theme.cardBg}; padding: 20mm; box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.08); border-radius: 4px; }
         @media print {
           @page { size: A4 portrait; margin: 12mm; }
-          body, html { 
-            background: #ffffff !important; 
-            padding: 0 !important; 
-            margin: 0 !important; 
-            -webkit-print-color-adjust: exact; 
-          }
-          .app-bg {
-            background-color: #ffffff !important;
-            padding: 0 !important;
-            min-height: auto !important;
-          }
+          body, html { background: #ffffff !important; padding: 0 !important; margin: 0 !important; -webkit-print-color-adjust: exact; }
+          .app-bg { background-color: #ffffff !important; padding: 0 !important; min-height: auto !important; }
           .no-print { display: none !important; }
-          
-          .report-document {
-            max-width: 100% !important;
-            width: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: #ffffff !important;
-            box-shadow: none !important;
-            border: none !important;
-            min-height: auto !important;
-          }
-          
-          .avoid-break {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            margin-bottom: 20px !important;
-          }
-          
-          .print-clean-border {
-            border: none !important;
-            padding: 0 !important;
-            background: transparent !important;
-          }
-          
-          .print-chart-container {
-            height: 250px !important; 
-          }
-
-          .print-expand {
-            max-height: none !important;
-            overflow: visible !important;
-            background: transparent !important;
-          }
+          .report-document { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 !important; background: #ffffff !important; box-shadow: none !important; border: none !important; min-height: auto !important; }
+          .avoid-break { page-break-inside: avoid !important; break-inside: avoid !important; margin-bottom: 20px !important; }
+          .print-clean-border { border: none !important; padding: 0 !important; background: transparent !important; }
+          .print-chart-container { height: 250px !important; }
+          .print-expand { max-height: none !important; overflow: visible !important; background: transparent !important; }
         }
       `}</style>
 
@@ -883,26 +667,28 @@ function App() {
               </div>
               <svg viewBox="0 0 1000 180" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
                 <defs>
-                  <marker id="arrowUDLB" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.textMain} /></marker>
+                  <marker id="arrowUDLB" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                 </defs>
                 <line x1="50" y1="140" x2="950" y2="140" stroke={theme.border} strokeWidth="1" strokeDasharray="5,5" />
                 <text x="500" y="165" textAnchor="middle" fill={theme.textMain} fontSize="14">L = {safeBeamLength} m</text>
-                <rect x="50" y="75" width="900" height="15" fill={theme.lightGray} stroke={theme.textMain} strokeWidth="2" />
+                <rect x="50" y="75" width="900" height="15" fill="#EEEEEE" stroke={theme.textMain} strokeWidth="2" />
+                
                 {beamSupports.map(sup => {
                   const label = getBeamNodeLabel(sup.id);
                   return (
                     <g key={sup.id}>
-                      <text x={getSvgX(sup.x)} y="65" textAnchor="middle" fontSize="16" fill={theme.textMain} fontWeight="bold">{label}</text>
-                      {sup.type === 'pin' ? <polygon points={`${getSvgX(sup.x)},90 ${getSvgX(sup.x)-12},115 ${getSvgX(sup.x)+12},115`} fill="none" stroke={theme.textMain} strokeWidth="2" /> : sup.type === 'fixed' ? <rect x={getSvgX(sup.x) - 8} y="90" width="16" height="25" fill={theme.textMain} /> : sup.type === 'free' ? <rect x={getSvgX(sup.x)-6} y="75" width="12" height="15" fill="none" stroke="#666" strokeWidth="1.5" strokeDasharray="2,2" /> : <circle cx={getSvgX(sup.x)} cy="102" r="10" fill="none" stroke={theme.textMain} strokeWidth="2" />}
+                      <text x={getSvgX(sup.x)} y="60" textAnchor="middle" fontSize="16" fill={theme.textMain} fontWeight="bold">{label}</text>
+                      <RenderSupportSVG cx={getSvgX(sup.x)} cy={75} type={sup.type} dir={sup.direction || 'horizontal'} color={theme.textMain} />
                       <text x={getSvgX(sup.x)} y="132" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">x={sup.x}</text>
                     </g>
                   )
                 })}
+                
                 {beamLoads.map(load => {
                   if (load.type === 'point') {
                     return (
                       <g key={load.id}>
-                        <line x1={getSvgX(load.x)} y1="20" x2={getSvgX(load.x)} y2="70" stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
+                        <line x1={getSvgX(load.x)} y1="20" x2={getSvgX(load.x)} y2="70" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowUDLB)" />
                         <text x={getSvgX(load.x)} y="15" textAnchor="middle" fontSize="14" fill={theme.textMain} fontWeight="bold">P = {load.magnitude} {forceUnit}</text>
                       </g>
                     )
@@ -911,27 +697,12 @@ function App() {
                     const isCW = load.direction === 'cw';
                     return (
                       <g key={load.id}>
-                        <path d={isCW ? `M ${mx-20} 40 A 20 20 0 0 1 ${mx+20} 40` : `M ${mx+20} 40 A 20 20 0 0 0 ${mx-20} 40`} fill="none" stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
+                        <path d={isCW ? `M ${mx-20} 40 A 20 20 0 0 1 ${mx+20} 40` : `M ${mx+20} 40 A 20 20 0 0 0 ${mx-20} 40`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowUDLB)" />
                         <text x={mx} y="20" textAnchor="middle" fontSize="14" fill={theme.textMain} fontWeight="bold">M = {load.magnitude} {forceUnit}.m</text>
                       </g>
                     )
                   } else {
-                    const startX = getSvgX(load.start_x);
-                    const endX = getSvgX(load.end_x);
-                    const lengthPx = endX - startX;
-                    const numArrows = Math.max(Math.floor(lengthPx / 30), 3);
-                    const arrows = [];
-                    for (let i = 0; i <= numArrows; i++) {
-                      const ax = startX + (lengthPx * (i / numArrows));
-                      arrows.push(<line key={`beam-arrow-${i}`} x1={ax} y1="35" x2={ax} y2="70" stroke={theme.textMain} strokeWidth="1.5" markerEnd="url(#arrowUDLB)" />);
-                    }
-                    return (
-                      <g key={load.id}>
-                        <rect x={startX} y="35" width={lengthPx} height="35" fill={theme.accent} fillOpacity="0.1" stroke={theme.textMain} strokeWidth="1.5" strokeDasharray="3,3" />
-                        {arrows}
-                        <text x={startX + lengthPx / 2} y="25" textAnchor="middle" fontSize="14" fill={theme.textMain} fontWeight="bold">w = {load.magnitude} {forceUnit}/m</text>
-                      </g>
-                    )
+                    return renderDistributedLoadArrows(getSvgX(load.start_x), 75, getSvgX(load.end_x), 75, 0, load.magnitude);
                   }
                 })}
               </svg>
@@ -941,7 +712,7 @@ function App() {
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fff' }}>
                 <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
                 <svg viewBox="0 0 1000 150" style={{ width: '100%', height: 'auto', backgroundColor: '#fff' }}>
-                  <rect x="50" y="65" width="900" height="12" fill={theme.lightGray} stroke={theme.textMain} strokeWidth="1.5" />
+                  <rect x="50" y="65" width="900" height="12" fill="#EEEEEE" stroke={theme.textMain} strokeWidth="1.5" />
                   {beamSupports.map(sup => {
                     const rx = getSvgX(sup.x);
                     const foundRx = beamReactions.find(r => Math.abs(r.support_x - sup.x) < 0.01);
@@ -951,13 +722,11 @@ function App() {
                       <g key={`fbd-${sup.id}`}>
                         {sup.type !== 'free' && (
                           <>
-                            <line x1={rx} y1={120} x2={rx} y2={80} stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
-                            <text x={rx} y="135" textAnchor="middle" fontSize="13" fill="#000" fontWeight="bold">R_{label} = {forceVal.toFixed(2)} {forceUnit}</text>
+                            <line x1={rx} y1={120} x2={rx} y2={80} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowUDL)" />
+                            <text x={rx} y="135" textAnchor="middle" fontSize="13" fill={theme.textMain} fontWeight="bold">R_{label} = {forceVal.toFixed(2)} {forceUnit}</text>
                           </>
                         )}
-                        {sup.type === 'pin' && <polygon points={`${rx},65 ${rx-10},45 ${rx+10},45`} fill={theme.textMain} />}
-                        {sup.type === 'roller' && <circle cx={rx} cy={55} r={8} fill={theme.textMain} />}
-                        {sup.type === 'fixed' && <rect x={rx - 8} y={65} width="16" height="25" fill={theme.textMain} />}
+                        <RenderSupportSVG cx={rx} cy={65} type={sup.type} dir={sup.direction || 'horizontal'} color={theme.textMain} />
                       </g>
                     );
                   })}
@@ -966,7 +735,7 @@ function App() {
                     if (load.type === 'point') {
                       return (
                         <g key={`fbd-load-${load.id}`}>
-                          <line x1={getSvgX(load.x)} y1="15" x2={getSvgX(load.x)} y2="60" stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
+                          <line x1={getSvgX(load.x)} y1="15" x2={getSvgX(load.x)} y2="60" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
                           <text x={getSvgX(load.x)} y="10" textAnchor="middle" fontSize="12" fill={theme.textMain} fontWeight="bold">{load.magnitude} {forceUnit}</text>
                         </g>
                       );
@@ -975,27 +744,12 @@ function App() {
                       const isCW = load.direction === 'cw';
                       return (
                         <g key={`fbd-load-${load.id}`}>
-                          <path d={isCW ? `M ${mx-20} 30 A 20 20 0 0 1 ${mx+20} 30` : `M ${mx+20} 30 A 20 20 0 0 0 ${mx-20} 30`} fill="none" stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
+                          <path d={isCW ? `M ${mx-20} 30 A 20 20 0 0 1 ${mx+20} 30` : `M ${mx+20} 30 A 20 20 0 0 0 ${mx-20} 30`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowUDLB)" />
                           <text x={mx} y="15" textAnchor="middle" fontSize="12" fill={theme.textMain} fontWeight="bold">{load.magnitude} {forceUnit}.m</text>
                         </g>
                       );
                     } else if (load.type === 'distributed') {
-                      const startX = getSvgX(load.start_x);
-                      const endX = getSvgX(load.end_x);
-                      const lengthPx = endX - startX;
-                      const numArrows = Math.max(Math.floor(lengthPx / 30), 3);
-                      const arrows = [];
-                      for (let i = 0; i <= numArrows; i++) {
-                        const ax = startX + (lengthPx * (i / numArrows));
-                        arrows.push(<line key={`fbd-arrow-${i}`} x1={ax} y1="25" x2={ax} y2="60" stroke={theme.textMain} strokeWidth="1.5" markerEnd="url(#arrowUDLB)" />);
-                      }
-                      return (
-                        <g key={`fbd-load-${load.id}`}>
-                          <rect x={startX} y="25" width={lengthPx} height="35" fill={theme.accent} fillOpacity="0.05" stroke={theme.textMain} strokeWidth="1.5" strokeDasharray="3,3" />
-                          {arrows}
-                          <text x={startX + lengthPx / 2} y="15" textAnchor="middle" fontSize="12" fill={theme.textMain} fontWeight="bold">w = {load.magnitude} {forceUnit}/m</text>
-                        </g>
-                      )
+                       return renderDistributedLoadArrows(getSvgX(load.start_x), 65, getSvgX(load.end_x), 65, 0, load.magnitude);
                     }
                     return null;
                   })}
@@ -1008,7 +762,8 @@ function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <h4 style={{ margin: 0, fontSize: '1rem' }}>Beam Length & Supports</h4>
                   <div style={{ display: 'flex', gap: '6px' }}>
-                    <button onClick={handleUndoBeam} disabled={beamHistory.length === 0} style={{ backgroundColor: '#fff', color: '#000', border: '1px solid #000', padding: '4px 8px', borderRadius: '4px', cursor: beamHistory.length===0?'not-allowed':'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>Undo</button>
+                    {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมขาว */}
+                    <button onClick={handleUndoBeam} disabled={beamHistory.length === 0} style={{ backgroundColor: '#fff', color: '#000', border: '1px solid #000', padding: '4px 10px', borderRadius: '4px', cursor: beamHistory.length===0?'not-allowed':'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>Undo</button>
                     <button onClick={addBeamSupport} style={{ backgroundColor: '#000', color: '#fff', border: 'none', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>+ Support</button>
                   </div>
                 </div>
@@ -1019,8 +774,12 @@ function App() {
                     <select value={sup.type} onChange={(e) => updateBeamSupport(sup.id, 'type', e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
                       <option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option><option value="free">Free</option>
                     </select>
+                    {/* 4. เลือกระนาบ แนวนอน/แนวดิ่ง */}
+                    <select value={sup.direction || 'horizontal'} onChange={(e) => updateBeamSupport(sup.id, 'direction', e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
+                      <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
+                    </select>
                     <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>x (m):</label>
-                    <input type="number" value={sup.x} onChange={(e) => updateBeamSupport(sup.id, 'x', Number(e.target.value))} style={{ width: '70px', padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}` }} />
+                    <input type="number" value={sup.x} onChange={(e) => updateBeamSupport(sup.id, 'x', Number(e.target.value))} style={{ width: '60px', padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}` }} />
                     <button onClick={() => removeBeamSupport(sup.id)} style={{ backgroundColor: '#fff', color: '#000', border: '1px solid #000', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>Del</button>
                   </div>
                 ))}
@@ -1032,7 +791,7 @@ function App() {
                   <div>
                     <button onClick={addBeamMomentLoad} style={{ backgroundColor: '#fff', color: '#000', border: '1px solid #000', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem', marginRight: '4px' }}>+ Moment</button>
                     <button onClick={addBeamPointLoad} style={{ backgroundColor: '#000', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem', marginRight: '4px' }}>+ Point</button>
-                    <button onClick={addBeamDistLoad} style={{ backgroundColor: theme.accent, color: '#000', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>+ UDL</button>
+                    <button onClick={addBeamDistLoad} style={{ backgroundColor: theme.textMain, color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>+ UDL</button>
                   </div>
                 </div>
                 {beamLoads.map(load => (
@@ -1057,7 +816,7 @@ function App() {
                       </div>
                     ) : (
                       <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 'bold', color: theme.accent }}>UDL</span>
+                        <span style={{ fontWeight: 'bold', color: theme.textMain }}>UDL</span>
                         <label>w:</label><input type="number" value={load.magnitude} onChange={(e) => updateBeamLoad(load.id, 'magnitude', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
                         <label>Start:</label><input type="number" value={load.start_x} onChange={(e) => updateBeamLoad(load.id, 'start_x', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
                         <label>End:</label><input type="number" value={load.end_x} onChange={(e) => updateBeamLoad(load.id, 'end_x', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
@@ -1142,7 +901,8 @@ function App() {
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
               <div className="no-print" style={{ padding: '10px 15px', backgroundColor: theme.lightGray, borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#fff', border: '1px solid #000' }}>Undo</button>
+                  {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมขาว */}
+                  <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px' }}>Undo</button>
                   <button onClick={clearTrussCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
                 </div>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1173,7 +933,7 @@ function App() {
                 <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
                   <defs>
                     <pattern id="gridT" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                    <marker id="arrowT" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.textMain} /></marker>
+                    <marker id="arrowT" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#gridT)" />
                   {renderDimensions(nodes, gridScale)}
@@ -1186,9 +946,7 @@ function App() {
                     const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     return (
                       <g key={`sup-${nId}`}>
-                        {supData.type === 'pin' ? <polygon points={`${node.x},${node.y+6} ${node.x-12},${node.y+25} ${node.x+12},${node.y+25}`} fill={theme.textMain} /> 
-                        : supData.type === 'fixed' ? <rect x={node.x - 15} y={node.y+5} width="30" height="12" fill={theme.textMain} /> 
-                        : supData.type === 'roller' ? <circle cx={node.x} cy={node.y+10} r="8" fill="none" stroke={theme.textMain} strokeWidth="2.5" /> : null}
+                        <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} color={theme.textMain} />
                       </g>
                     )
                   })}
@@ -1198,8 +956,14 @@ function App() {
                       <g key={`load-${nId}`}>
                         {Number(force.fy) !== 0 && (
                           <>
-                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowT)" />
+                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowT)" />
                             <text x={node.x + 12} y={node.y - 25} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fy} {trussUnit}</text>
+                          </>
+                        )}
+                        {Number(force.fx) !== 0 && (
+                          <>
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowT)" />
+                            <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
                       </g>
@@ -1208,7 +972,7 @@ function App() {
                   {nodes.map(node => (
                     <g key={node.id} style={{ cursor: 'pointer' }}>
                       <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleTrussNodeClick(e, node)} />
-                      <circle cx={node.x} cy={node.y} r={selectedNodeId === node.id ? 9 : 6} fill={selectedNodeId === node.id ? theme.accent : "#fff"} stroke="#000" strokeWidth="2" style={{ pointerEvents: 'none' }} />
+                      <circle cx={node.x} cy={node.y} r={selectedNodeId === node.id ? 9 : 6} fill={selectedNodeId === node.id ? "#000" : "#fff"} stroke="#000" strokeWidth="2" style={{ pointerEvents: 'none' }} />
                       <text x={node.x + 10} y={node.y - 10} fill={theme.textMain} fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
                     </g>
                   ))}
@@ -1225,6 +989,7 @@ function App() {
                     <defs>
                       <pattern id="gridT_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
                       <marker id="arrowT_FBD" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.textMain} /></marker>
+                      <marker id="arrowT_Load" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
                     </defs>
                     <rect width="100%" height="100%" fill="url(#gridT_FBD)" />
                     
@@ -1256,18 +1021,26 @@ function App() {
                               <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill="#000" fontWeight="bold">{fxText}</text>
                             </>
                           )}
-                          {supData.type === 'pin' && <polygon points={`${node.x},${node.y+5} ${node.x-10},${node.y+15} ${node.x+10},${node.y+15}`} fill={theme.textMain} />}
-                          {supData.type === 'roller' && <circle cx={node.x} cy={node.y+10} r={7} fill="none" stroke={theme.textMain} strokeWidth="2.5" />}
-                          {supData.type === 'fixed' && <rect x={node.x - 12} y={node.y+5} width="24" height="10" fill={theme.textMain} />}
+                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} color={theme.textMain} />
                         </g>
                       );
                     })}
                     {Object.entries(trussLoads).map(([nId, force]) => {
                       const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                      return Number(force.fy) !== 0 && (
-                        <g key={`t-fbd-load-${nId}`}>
-                          <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowT_FBD)" />
-                          <text x={node.x + 12} y={node.y - 15} fontSize="12" fill="#000" fontWeight="bold">{force.fy} {trussUnit}</text>
+                      return (
+                         <g key={`t-fbd-load-${nId}`}>
+                          {Number(force.fy) !== 0 && (
+                            <>
+                              <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowT_Load)" />
+                              <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fy} {trussUnit}</text>
+                            </>
+                          )}
+                          {Number(force.fx) !== 0 && (
+                            <>
+                              <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowT_Load)" />
+                              <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {trussUnit}</text>
+                            </>
+                          )}
                         </g>
                       );
                     })}
@@ -1290,6 +1063,11 @@ function App() {
                     <select value={trussSupports[selectedNodeId]?.type || 'none'} onChange={(e) => handleSupportTypeChange(selectedNodeId, e.target.value)} style={{ fontFamily: '"Times New Roman", Times, serif' }}>
                       <option value="none">Support: None</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option><option value="free">Free</option>
                     </select>
+                    {/* 4. เลือกระนาบ แนวนอน/แนวดิ่ง */}
+                    <select value={trussSupports[selectedNodeId]?.direction || 'horizontal'} onChange={(e) => { saveTrussState(); setTrussSupports(prev => ({ ...prev, [selectedNodeId]: { ...prev[selectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
+                      <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
+                    </select>
+                    <input type="number" placeholder="Fx Load" value={trussLoads[selectedNodeId]?.fx || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fx', e.target.value)} style={{ width: '80px', padding: '4px' }} />
                     <input type="number" placeholder="Fy Load" value={trussLoads[selectedNodeId]?.fy || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fy', e.target.value)} style={{ width: '80px', padding: '4px' }} />
                   </div>
                 ) : <span style={{ fontSize: '0.9rem', color: '#666' }}>Click any node on canvas to configure support & point load.</span>}
@@ -1340,7 +1118,8 @@ function App() {
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#fff' }}>
               <div className="no-print" style={{ padding: '10px 15px', backgroundColor: theme.lightGray, borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={handleUndoFrame} disabled={frameHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: frameHistory.length===0?'not-allowed':'pointer', backgroundColor: '#fff', border: '1px solid #000' }}>Undo</button>
+                  {/* 3. ปุ่ม Undo ช่องสี่เหลี่ยมขาว */}
+                  <button onClick={handleUndoFrame} disabled={frameHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: frameHistory.length===0?'not-allowed':'pointer', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px' }}>Undo</button>
                   <button onClick={clearFrameCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
                 </div>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1361,8 +1140,8 @@ function App() {
                 <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#fff' }}>
                   <defs>
                     <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                    <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.textMain} /></marker>
-                    <marker id="arrowFramePoint" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.textMain} /></marker>
+                    <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+                    <marker id="arrowFramePoint" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
                   </defs>
                   <rect width="100%" height="100%" fill="url(#gridF)" />
                   {renderDimensions(fNodes, fGridScale)}
@@ -1391,13 +1170,13 @@ function App() {
                           <>
                             {pointLoad.py && pointLoad.py !== 0 && (
                               <g>
-                                <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                                <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
                                 <text x={plX + 12} y={plY - 20} fill={theme.textMain} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
                               </g>
                             )}
                             {pointLoad.px && pointLoad.px !== 0 && (
                               <g>
-                                <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                                <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
                                 <text x={plX - 25} y={plY - 10} fill={theme.textMain} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
                               </g>
                             )}
@@ -1411,9 +1190,7 @@ function App() {
                     const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
                     return (
                       <g key={`sup-${nId}`}>
-                        {supData.type === 'pin' ? <polygon points={`${node.x},${node.y+6} ${node.x-12},${node.y+25} ${node.x+12},${node.y+25}`} fill={theme.textMain} /> 
-                        : supData.type === 'fixed' ? <rect x={node.x - 15} y={node.y+5} width="30" height="12" fill={theme.textMain} /> 
-                        : supData.type === 'roller' ? <circle cx={node.x} cy={node.y+10} r="8" fill="none" stroke={theme.textMain} strokeWidth="2.5" /> : null}
+                        <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} color={theme.textMain} />
                       </g>
                     )
                   })}
@@ -1424,19 +1201,19 @@ function App() {
                       <g key={`load-${nId}`}>
                         {Number(force.fy) !== 0 && (
                           <>
-                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                            <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
                             <text x={node.x + 12} y={node.y} fill={theme.textMain} fontSize="13" fontWeight="bold">Fy = {force.fy} {fForceUnit}</text>
                           </>
                         )}
                         {Number(force.fx) !== 0 && (
                           <>
-                            <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
                             <text x={node.x} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
                           </>
                         )}
                         {Number(force.mz) !== 0 && (
                           <g>
-                            <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowFramePoint)" />
+                            <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowFramePoint)" />
                             <text x={node.x} y={node.y - 45} fill={theme.textMain} fontSize="13" fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)} {fForceUnit}.m</text>
                           </g>
                         )}
@@ -1447,7 +1224,7 @@ function App() {
                   {fNodes.map(node => (
                     <g key={node.id} style={{ cursor: 'pointer' }}>
                       <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleFrameNodeClick(e, node)} />
-                      <circle cx={node.x} cy={node.y} r={fSelectedNodeId === node.id ? 9 : 6} fill={fSelectedNodeId === node.id ? theme.accent : "#fff"} stroke="#000" strokeWidth="2" style={{ pointerEvents: 'none' }} />
+                      <circle cx={node.x} cy={node.y} r={fSelectedNodeId === node.id ? 9 : 6} fill={fSelectedNodeId === node.id ? "#000" : "#fff"} stroke="#000" strokeWidth="2" style={{ pointerEvents: 'none' }} />
                       <text x={node.x + 10} y={node.y - 10} fill={theme.textMain} fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
                     </g>
                   ))}
@@ -1463,8 +1240,9 @@ function App() {
                   <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#fff' }}>
                     <defs>
                       <pattern id="gridF_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#e0e0e0" strokeWidth="1"/></pattern>
-                      <marker id="arrowUDL_FBD" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.textMain} /></marker>
+                      <marker id="arrowUDL_FBD" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
                       <marker id="arrowFramePoint_FBD" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.textMain} /></marker>
+                      <marker id="arrowFrameLoad_FBD" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill={theme.accent} /></marker>
                     </defs>
                     <rect width="100%" height="100%" fill="url(#gridF_FBD)" />
                     
@@ -1496,13 +1274,13 @@ function App() {
                             <>
                               {pointLoad.py && pointLoad.py !== 0 && (
                                 <g>
-                                  <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowFramePoint_FBD)" />
+                                  <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
                                   <text x={plX + 12} y={plY - 20} fill={theme.textMain} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
                                 </g>
                               )}
                               {pointLoad.px && pointLoad.px !== 0 && (
                                 <g>
-                                  <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.textMain} strokeWidth="2.5" markerEnd="url(#arrowFramePoint_FBD)" />
+                                  <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
                                   <text x={plX - 25} y={plY - 10} fill={theme.textMain} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
                                 </g>
                               )}
@@ -1544,9 +1322,7 @@ function App() {
                               <text x={node.x} y={node.y - 45} fontSize="12" fill="#000" fontWeight="bold" textAnchor="middle">{mzText}</text>
                             </g>
                           )}
-                          {supData.type === 'pin' && <polygon points={`${node.x},${node.y+5} ${node.x-10},${node.y+15} ${node.x+10},${node.y+15}`} fill={theme.textMain} />}
-                          {supData.type === 'fixed' && <rect x={node.x - 12} y={node.y+5} width="24" height="10" fill={theme.textMain} />}
-                          {supData.type === 'roller' && <circle cx={node.x} cy={node.y+10} r={7} fill="none" stroke={theme.textMain} strokeWidth="2.5" />}
+                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} color={theme.textMain} />
                         </g>
                       );
                     })}
@@ -1557,14 +1333,20 @@ function App() {
                         <g key={`f-fbd-nload-${nId}`}>
                           {Number(force.fy) !== 0 && (
                             <>
-                              <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowFramePoint_FBD)" />
-                              <text x={node.x + 12} y={node.y - 15} fontSize="12" fill="#000" fontWeight="bold">{force.fy} {fForceUnit}</text>
+                              <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                              <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fy} {fForceUnit}</text>
+                            </>
+                          )}
+                          {Number(force.fx) !== 0 && (
+                            <>
+                              <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                              <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {fForceUnit}</text>
                             </>
                           )}
                           {Number(force.mz) !== 0 && (
                             <g>
-                              <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke="#000" strokeWidth="2.5" markerEnd="url(#arrowFramePoint_FBD)" />
-                              <text x={node.x} y={node.y - 45} fontSize="12" fill="#000" fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)}</text>
+                              <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowFrameLoad_FBD)" />
+                              <text x={node.x} y={node.y - 45} fontSize="12" fill={theme.textMain} fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)}</text>
                             </g>
                           )}
                         </g>
@@ -1588,6 +1370,10 @@ function App() {
                   <strong style={{ color: theme.textMain }}>Node {fSelectedNode.name}:</strong>
                   <select value={fSupports[fSelectedNode.id]?.type || 'none'} onChange={(e) => handleFSupportTypeChange(fSelectedNode.id, e.target.value)} style={{ fontFamily: '"Times New Roman", Times, serif' }}>
                     <option value="none">Support: None</option><option value="fixed">Fixed</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="free">Free</option>
+                  </select>
+                  {/* 4. เลือกระนาบ แนวนอน/แนวดิ่ง */}
+                  <select value={fSupports[fSelectedNode.id]?.direction || 'horizontal'} onChange={(e) => { saveFrameState(); setFSupports(prev => ({ ...prev, [fSelectedNodeId]: { ...prev[fSelectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
+                    <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
                   </select>
                   <input type="number" placeholder={`Fx (${fForceUnit})`} value={fLoads[fSelectedNode.id]?.fx !== undefined ? fLoads[fSelectedNode.id].fx : ''} onChange={(e) => handleFLoadChange(fSelectedNode.id, 'fx', e.target.value)} style={{ width: '70px', padding: '4px' }} />
                   <input type="number" placeholder={`Fy (${fForceUnit})`} value={fLoads[fSelectedNode.id]?.fy !== undefined ? fLoads[fSelectedNode.id].fy : ''} onChange={(e) => handleFLoadChange(fSelectedNode.id, 'fy', e.target.value)} style={{ width: '70px', padding: '4px' }} />
