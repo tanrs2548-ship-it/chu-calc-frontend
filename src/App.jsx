@@ -35,15 +35,20 @@ function App() {
   }
 
   // ==========================================
-  // HELPER COMPONENTS
+  // HELPER COMPONENTS & FUNCTIONS
   // ==========================================
+  const formatYAxis = (tickItem) => {
+    if (tickItem === undefined || tickItem === null) return '0';
+    return tickItem >= 10000 || tickItem <= -10000 ? (tickItem / 1000).toFixed(1) + 'k' : tickItem.toLocaleString();
+  }
+
   const RenderSupportSVG = ({ cx, cy, type, dir }) => {
     const isV = dir === 'vertical';
     const color = theme.supportOrange;
     if (type === 'pin') {
       return isV
         ? <g><polygon points={`${cx-5},${cy} ${cx-20},${cy-10} ${cx-20},${cy+10}`} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
-        : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx+15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
+        : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx-15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
     }
     if (type === 'roller') {
       return isV
@@ -151,7 +156,7 @@ function App() {
     return (convVal * multiplier).toFixed(4);
   }
 
-  const getMaxMin = (data, key) => {
+  const getMaxMinObj = (data, key) => {
     if (!data || data.length === 0) return { max: null, min: null };
     let max = data[0], min = data[0];
     data.forEach(d => {
@@ -232,9 +237,12 @@ function App() {
     }
   }
 
+  const shearExtremes = getMaxMinObj(chartData, 'shear');
+  const momentExtremes = getMaxMinObj(chartData, 'moment');
+
   const analyzeBeam = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 1500)); // 1. ลดเวลาโหลดเหลือ 1.5 วินาที
+    await new Promise(r => setTimeout(r, 1500));
     try {
       const calculatedEI = Number(beamE) * Number(beamI);
       const payload = {
@@ -250,8 +258,6 @@ function App() {
         analysis_type: "determinate"
       };
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
-      
-      // ดักจับ Error ป้องกันจอขาว หาก Backend ตอบกลับมาไม่สมบูรณ์
       if (!response.data || !response.data.diagram_data || !response.data.diagram_data.x) {
          throw new Error("Invalid response from server");
       }
@@ -276,12 +282,12 @@ function App() {
         return { x: xValue, shear: data.shear[index], moment: data.moment[index], deflection: def };
       });
       setChartData(formattedData);
-      setBeamReactions(response.data.reactions);
+      setBeamReactions(response.data.reactions || []);
       setTabularResults(response.data.tabular_results || []);
       setBeamSteps(response.data.steps || []);
     } catch (error) {
       console.error("Analysis Error:", error);
-      alert("Calculation Error! Please check your supports and loads to ensure stability.");
+      alert("Calculation Error! Please check your supports and loads.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -440,7 +446,7 @@ function App() {
 
   const runTrussAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 1500)); // ลดเวลาโหลด
+    await new Promise(r => setTimeout(r, 1500));
     try {
       const cleanedElements = autoCleanMesh(nodes, elements);
       setElements(cleanedElements);
@@ -600,7 +606,7 @@ function App() {
 
   const runFrameStaticsAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 1500)); // ลดเวลาโหลด
+    await new Promise(r => setTimeout(r, 1500));
     try {
       const fRxns = {}; const fSteps = []; fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
       let sumFx = 0; let sumFy = 0;
@@ -699,7 +705,6 @@ function App() {
         <div style={{ textAlign: 'center', marginBottom: '60px' }}>
           <h1 style={{ fontSize: '4.5rem', letterSpacing: '8px', color: theme.textMain, margin: '0 0 15px 0', fontWeight: 'bold' }}>CHU CALC</h1>
           <p style={{ fontStyle: 'italic', color: '#555', fontSize: '1.2rem', margin: 0, letterSpacing: '2px', textTransform: 'uppercase' }}>Advanced Structural Engineering Suite</p>
-          {/* 2. ขยับเส้นคั่นไม่ให้เบียดตัวหนังสือ */}
           <div style={{ width: '80px', height: '4px', backgroundColor: theme.supportOrange, margin: '30px auto 0 auto' }}></div>
         </div>
         
@@ -800,9 +805,8 @@ function App() {
         </div>
 
       </div>
-    </div>
-  )
-}
+    )
+  }
 
   // ==========================================
   // RENDER STATICS SUITE APP
@@ -1018,7 +1022,60 @@ function App() {
               </div>
             )}
 
-            <div className="no-print" style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            {chartData.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px' }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>3. Shear Force Diagram (SFD)</h4>
+                  <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
+                    <ResponsiveContainer>
+                      <AreaChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ccc" />
+                        <XAxis dataKey="x" ticks={optimizedTicks} domain={[0, safeBeamLength]} type="number" />
+                        <YAxis tickFormatter={formatYAxis} />
+                        <Tooltip />
+                        <Area type="stepAfter" dataKey="shear" stroke={theme.textMain} strokeWidth={2} fill={theme.lightGray} fillOpacity={0.8} />
+                        {shearExtremes.max && (
+                          <ReferenceDot x={shearExtremes.max.x} y={shearExtremes.max.shear} r={4} fill="#000" stroke="#fff" label={{ value: 'Max: ' + shearExtremes.max.shear.toFixed(2), position: 'top', fill: '#000', fontSize: 12, fontWeight: 'bold' }} />
+                        )}
+                        {shearExtremes.min && shearExtremes.min.shear !== shearExtremes.max?.shear && (
+                          <ReferenceDot x={shearExtremes.min.x} y={shearExtremes.min.shear} r={4} fill="#000" stroke="#fff" label={{ value: 'Min: ' + shearExtremes.min.shear.toFixed(2), position: 'bottom', fill: '#000', fontSize: 12, fontWeight: 'bold' }} />
+                        )}
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+                
+                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px' }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>4. Bending Moment Diagram (BMD)</h4>
+                  <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
+                    <ResponsiveContainer>
+                      <AreaChart data={chartData}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ccc" />
+                        <XAxis dataKey="x" ticks={optimizedTicks} domain={[0, safeBeamLength]} type="number" />
+                        <YAxis tickFormatter={formatYAxis} />
+                        <Tooltip />
+                        <Area type="linear" dataKey="moment" stroke={theme.textMain} strokeWidth={2} fill={theme.lightGray} fillOpacity={0.8} />
+                        {momentExtremes.max && (
+                          <ReferenceDot x={momentExtremes.max.x} y={momentExtremes.max.moment} r={4} fill="#000" stroke="#fff" label={{ value: 'Max: ' + momentExtremes.max.moment.toFixed(2), position: 'top', fill: '#000', fontSize: 12, fontWeight: 'bold' }} />
+                        )}
+                        {momentExtremes.min && momentExtremes.min.moment !== momentExtremes.max?.moment && (
+                          <ReferenceDot x={momentExtremes.min.x} y={momentExtremes.min.moment} r={4} fill="#000" stroke="#fff" label={{ value: 'Min: ' + momentExtremes.min.moment.toFixed(2), position: 'bottom', fill: '#000', fontSize: 12, fontWeight: 'bold' }} />
+                        )}
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}` }}>
+                  <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>Equilibrium Reactions & Calculations</h4>
+                  <div className="print-expand" style={{ backgroundColor: theme.lightGray, padding: '10px', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace', maxHeight: '150px', overflowY: 'auto', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap' }}>
+                    {beamSteps.map((step, i) => <div key={i} style={{ marginBottom: '4px' }}>{step}</div>)}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="no-print" style={{ display: 'flex', gap: '15px', marginTop: '20px', flexWrap: 'wrap' }}>
               <div style={{ flex: '1.3', backgroundColor: '#fff', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <h4 style={{ margin: 0, fontSize: '1rem' }}>Beam Length & Supports</h4>
@@ -1090,59 +1147,6 @@ function App() {
                 <button onClick={analyzeBeam} style={{ padding: '14px 24px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: theme.textMain, color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Analyze Beam</button>
               </div>
             </div>
-
-            {chartData.length > 0 && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>3. Shear Force Diagram (SFD)</h4>
-                  <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
-                    <ResponsiveContainer>
-                      <AreaChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ccc" />
-                        <XAxis dataKey="x" ticks={optimizedTicks} domain={[0, safeBeamLength]} type="number" />
-                        <YAxis tickFormatter={formatYAxis} />
-                        <Tooltip />
-                        <Area type="stepAfter" dataKey="shear" stroke={theme.textMain} strokeWidth={2} fill={theme.lightGray} fillOpacity={0.8} />
-                        {shearExtremes.max && (
-                          <ReferenceDot x={shearExtremes.max.x} y={shearExtremes.max.shear} r={4} fill="#000" stroke="#fff" label={{ value: 'Max: ' + shearExtremes.max.shear.toFixed(2), position: 'top', fill: '#000', fontSize: 12, fontWeight: 'bold' }} />
-                        )}
-                        {shearExtremes.min && shearExtremes.min.shear !== shearExtremes.max?.shear && (
-                          <ReferenceDot x={shearExtremes.min.x} y={shearExtremes.min.shear} r={4} fill="#000" stroke="#fff" label={{ value: 'Min: ' + shearExtremes.min.shear.toFixed(2), position: 'bottom', fill: '#000', fontSize: 12, fontWeight: 'bold' }} />
-                        )}
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-                
-                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>4. Bending Moment Diagram (BMD)</h4>
-                  <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
-                    <ResponsiveContainer>
-                      <AreaChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#ccc" />
-                        <XAxis dataKey="x" ticks={optimizedTicks} domain={[0, safeBeamLength]} type="number" />
-                        <YAxis tickFormatter={formatYAxis} />
-                        <Tooltip />
-                        <Area type="linear" dataKey="moment" stroke={theme.textMain} strokeWidth={2} fill={theme.lightGray} fillOpacity={0.8} />
-                        {momentExtremes.max && (
-                          <ReferenceDot x={momentExtremes.max.x} y={momentExtremes.max.moment} r={4} fill="#000" stroke="#fff" label={{ value: 'Max: ' + momentExtremes.max.moment.toFixed(2), position: 'top', fill: '#000', fontSize: 12, fontWeight: 'bold' }} />
-                        )}
-                        {momentExtremes.min && momentExtremes.min.moment !== momentExtremes.max?.moment && (
-                          <ReferenceDot x={momentExtremes.min.x} y={momentExtremes.min.moment} r={4} fill="#000" stroke="#fff" label={{ value: 'Min: ' + momentExtremes.min.moment.toFixed(2), position: 'bottom', fill: '#000', fontSize: 12, fontWeight: 'bold' }} />
-                        )}
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}` }}>
-                  <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>Equilibrium Reactions & Calculations</h4>
-                  <div className="print-expand" style={{ backgroundColor: theme.lightGray, padding: '10px', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace', maxHeight: '150px', overflowY: 'auto', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap' }}>
-                    {beamSteps.map((step, i) => <div key={i} style={{ marginBottom: '4px' }}>{step}</div>)}
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -1157,7 +1161,7 @@ function App() {
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
-            {/* Truss Presets */}
+            {/* Presets Bar */}
             <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#000' }}>Presets:</span>
               <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>Pratt Truss</button>
@@ -1226,7 +1230,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
@@ -1259,7 +1263,6 @@ function App() {
                       const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
                       if (!n1 || !n2) return null;
                       
-                      // Zero-Force Member Visual Check
                       const memberName1 = `${n1.name}${n2.name}`;
                       const memberName2 = `${n2.name}${n1.name}`;
                       const resMember = trussAnalysisResult?.members?.find(m => m.name === memberName1 || m.name === memberName2);
@@ -1616,7 +1619,7 @@ function App() {
                           )}
                           {Number(force.fx) !== 0 && (
                             <>
-                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {fForceUnit}</text>
                             </>
                           )}
