@@ -178,8 +178,8 @@ function App() {
   // 0. FORCE VECTORS STATES
   // ==========================================
   const [vectorLoads, setVectorLoads] = useState([
-    { id: 1, magnitude: 100, angle: 45, quadrant: 1, refAxis: 'x', direction: 'out' },
-    { id: 2, magnitude: 150, angle: 60, quadrant: 2, refAxis: 'x', direction: 'out' }
+    { id: 1, magnitude: 100, angle: 60, quadrant: 3, refAxis: 'x', direction: 'out' },
+    { id: 2, magnitude: 50, angle: 20, quadrant: 1, refAxis: 'x', direction: 'out' }
   ]);
   const [vectorResult, setVectorResult] = useState(null);
 
@@ -187,12 +187,10 @@ function App() {
   const updateVectorLoad = (id, field, val) => setVectorLoads(vectorLoads.map(v => v.id === id ? { ...v, [field]: val } : v));
   const removeVectorLoad = (id) => setVectorLoads(vectorLoads.filter(v => v.id !== id));
 
-  // ฟังก์ชันคำนวณมุมจริงเทียบแกน X+ (0-360 องศา ทวนเข็มนาฬิกา)
   const getVectorComponents = (v) => {
     let baseAngle = Number(v.angle) || 0;
     let trueAngle = 0;
     
-    // หามุมวาด (ชี้ออกนอกจุดกำเนิดไปจตุภาคที่กำหนดเสมอ)
     if (v.quadrant === 1) {
       trueAngle = v.refAxis === 'x' ? baseAngle : 90 - baseAngle;
     } else if (v.quadrant === 2) {
@@ -205,7 +203,6 @@ function App() {
 
     const drawRad = (trueAngle * Math.PI) / 180;
     
-    // ถ้าแรง "พุ่งเข้า" (in) ทิศทางแรงจริงจะกลับ 180 องศา
     let forceAngle = trueAngle;
     if (v.direction === 'in') {
       forceAngle = (trueAngle + 180) % 360;
@@ -244,7 +241,15 @@ function App() {
       let rAng = (Math.atan2(sumFy, sumFx) * 180) / Math.PI;
       if (rAng < 0) rAng += 360;
 
-      setVectorResult({ sumFx, sumFy, rMag, rAng, steps });
+      // คำนวณมุมอ้างอิงให้ดูเป็นธรรมชาติ (1-90 องศา พร้อมบอกทิศ)
+      const refAng = (Math.atan(Math.abs(sumFy) / (Math.abs(sumFx) || 0.0001)) * 180 / Math.PI);
+      let dirSymbol = '';
+      if (sumFx >= 0 && sumFy >= 0) dirSymbol = '↗ (Q1)';
+      else if (sumFx < 0 && sumFy >= 0) dirSymbol = '↖ (Q2)';
+      else if (sumFx < 0 && sumFy < 0) dirSymbol = '↙ (Q3)';
+      else dirSymbol = '↘ (Q4)';
+
+      setVectorResult({ sumFx, sumFy, rMag, rAng, refAng, dirSymbol, steps });
       setIsAnalyzing(false);
     }, 600);
   };
@@ -370,7 +375,6 @@ function App() {
   const [nodes, setNodes] = useState([])
   const [elements, setElements] = useState([])
   const [selectedNodeId, setSelectedNodeId] = useState(null)
-  const [trussUnit, setTrussUnit] = useState('kN')
   const [gridScale, setGridScale] = useState(1.0) 
   const [trussSupports, setTrussSupports] = useState({})
   const [trussLoads, setTrussLoads] = useState({})
@@ -550,9 +554,9 @@ function App() {
               if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
               const r_pin_y = -sumFy - r_roller_y; const r_pin_x = -sumFx;
               tRxns[pinId] = { fx: r_pin_x, fy: r_pin_y }; tRxns[rollerId] = { fx: 0, fy: r_roller_y };
-              tSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${trussUnit}`);
-              tSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${trussUnit}`);
-              tSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${trussUnit}`);
+              tSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${forceUnit}`);
+              tSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${forceUnit}`);
+              tSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${forceUnit}`);
           } else {
               tSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate or has non-standard supports.`);
           }
@@ -562,7 +566,7 @@ function App() {
       const payload = {
         nodes: nodes.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
         elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })), 
-        supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: null
+        supports: trussSupports, loads: trussLoads, unit: forceUnit, ei: null
       };
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
       if(!response.data) throw new Error("No Data from Server");
@@ -584,7 +588,6 @@ function App() {
   const [fLoads, setFLoads] = useState({}) 
   const [fDistLoads, setFDistLoads] = useState({}) 
   const [fPointLoadsOnElement, setFPointLoadsOnElement] = useState({})
-  const [fForceUnit, setFForceUnit] = useState('kN')
   const [fGridScale, setFGridScale] = useState(1.0)
   const [frameLocalData, setFrameLocalData] = useState({ steps: [], rxns: {}, analyzed: false })
   const [frameHistory, setFrameHistory] = useState([])
@@ -889,7 +892,15 @@ function App() {
             </div>
 
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fff' }}>
-               <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>1. Force Vectors Visualization</h3>
+               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                 <h3 style={{ margin: '0', color: theme.textMain, fontSize: '1.1rem' }}>1. Force Vectors Visualization</h3>
+                 <div className="no-print" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                   <label style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Unit:</label>
+                   <select value={forceUnit} onChange={(e) => setForceUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
+                     <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
+                   </select>
+                 </div>
+               </div>
                
                <div style={{ width: '100%', overflow: 'hidden', display: 'flex', justifyContent: 'center', backgroundColor: '#fdfdfd', border: `1px solid ${theme.border}`, borderRadius: '6px' }}>
                  <svg width="100%" height="400" viewBox="0 0 1000 600" style={{ display: 'block' }}>
@@ -1011,8 +1022,8 @@ function App() {
                        <thead>
                          <tr style={{ borderBottom: '2px solid #000' }}>
                            <th style={{ padding: '8px 4px' }}>Force</th>
-                           <th style={{ padding: '8px 4px' }}>Fx (cos)</th>
-                           <th style={{ padding: '8px 4px' }}>Fy (sin)</th>
+                           <th style={{ padding: '8px 4px' }}>Fx ({forceUnit})</th>
+                           <th style={{ padding: '8px 4px' }}>Fy ({forceUnit})</th>
                          </tr>
                        </thead>
                        <tbody>
@@ -1032,9 +1043,9 @@ function App() {
                      </table>
                   </div>
 
-                  <div className="no-print" style={{ display: 'flex', gap: '30px', justifyContent: 'flex-start', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
+                  <div style={{ display: 'flex', gap: '30px', justifyContent: 'flex-start', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
                      <span><strong>|R| (Resultant):</strong> {vectorResult.rMag.toFixed(2)} {forceUnit}</span>
-                     <span><strong>θ (Angle):</strong> {vectorResult.rAng.toFixed(2)}°</span>
+                     <span><strong>θ (Angle):</strong> {vectorResult.rAng.toFixed(2)}° <span style={{fontSize: '0.9rem', color: '#555'}}>({vectorResult.refAng.toFixed(2)}° {vectorResult.dirSymbol})</span></span>
                   </div>
                </div>
             )}
