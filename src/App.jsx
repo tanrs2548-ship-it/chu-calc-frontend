@@ -773,7 +773,7 @@ function App() {
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
       {/* Global Marker Defs */}
-      <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+      <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none', zIndex: -1 }}>
         <defs>
           <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
           <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
@@ -845,19 +845,23 @@ function App() {
         
         {/* Top Header Navigation with Formula Button */}
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
-          <button onClick={() => setCurrentView('home')} style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #000', backgroundColor: '#fff', color: '#000' }}>
+          <button 
+            onClick={() => { setCurrentView('home'); window.scrollTo(0,0); }} 
+            style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #000', backgroundColor: '#fff', color: '#000', position: 'relative', zIndex: 10 }}>
             ◀ Main Menu
           </button>
           <div style={{ textAlign: 'center' }}>
             <h2 style={{ fontSize: '1.8rem', letterSpacing: '2px', color: theme.textMain, margin: '0 0 5px 0' }}>Engineering Mechanics Statics</h2>
           </div>
-          <button onClick={() => setShowFormulaModal(true)} style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #000', backgroundColor: '#000', color: '#fff' }}>
+          <button 
+            onClick={() => setShowFormulaModal(true)} 
+            style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #000', backgroundColor: '#000', color: '#fff', position: 'relative', zIndex: 10 }}>
             📖 Formulas
           </button>
         </div>
 
         {/* Structure Selector Tabs */}
-        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap' }}>
+        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 10 }}>
           <button onClick={() => setActiveTab('vectors')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'vectors' ? '#000' : '#fff', color: activeTab === 'vectors' ? '#fff' : '#000' }}>Force Vectors</button>
           <button onClick={() => setActiveTab('beam')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'beam' ? '#000' : '#fff', color: activeTab === 'beam' ? '#fff' : '#000' }}>Simple Beam</button>
           <button onClick={() => setActiveTab('truss')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'truss' ? '#000' : '#fff', color: activeTab === 'truss' ? '#fff' : '#000' }}>Truss Builder</button>
@@ -1005,8 +1009,8 @@ function App() {
                        <thead>
                          <tr style={{ borderBottom: '2px solid #000' }}>
                            <th style={{ padding: '8px 4px' }}>Force</th>
-                           <th style={{ padding: '8px 4px' }}>Fx ({vectorUnit})</th>
-                           <th style={{ padding: '8px 4px' }}>Fy ({vectorUnit})</th>
+                           <th style={{ padding: '8px 4px' }}>Fx</th>
+                           <th style={{ padding: '8px 4px' }}>Fy</th>
                          </tr>
                        </thead>
                        <tbody>
@@ -1158,7 +1162,7 @@ function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 
                 {/* Max Absolute Values (Plain text format) */}
-                <div style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
+                <div className="no-print" style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
                    <span><strong>|V| max:</strong> {maxAbsoluteShear.toFixed(2)} {forceUnit}</span>
                    <span><strong>|M| max:</strong> {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m</span>
                 </div>
