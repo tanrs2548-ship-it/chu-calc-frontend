@@ -313,6 +313,8 @@ function App() {
     }
   }
 
+  const snapToGrid = (value) => Math.round(value / PIXELS_PER_GRID) * PIXELS_PER_GRID
+  
   const handleTrussNodeClick = (e, node) => {
     e.stopPropagation(); 
     if (selectedNodeId === node.id) { setSelectedNodeId(null);
@@ -595,7 +597,7 @@ function App() {
 
   const runFrameStaticsAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 1500));
+    await new Promise(r => setTimeout(r, 1500)); // ลดเวลาโหลด
     try {
       const fRxns = {}; const fSteps = []; fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
       let sumFx = 0; let sumFy = 0;
@@ -1036,14 +1038,10 @@ function App() {
             {chartData.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 
-                {/* Max Shear & Moment Indicator Boxes */}
-                <div className="no-print" style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginBottom: '10px' }}>
-                   <div style={{ padding: '12px 24px', backgroundColor: '#e6f4ea', border: '2px solid #28a745', borderRadius: '8px', color: '#155724', fontWeight: 'bold', fontSize: '1.2rem', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                     |V| max = {maxAbsoluteShear.toFixed(2)} {forceUnit}
-                   </div>
-                   <div style={{ padding: '12px 24px', backgroundColor: '#fff3cd', border: '2px solid #ffc107', borderRadius: '8px', color: '#856404', fontWeight: 'bold', fontSize: '1.2rem', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-                     |M| max = {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m
-                   </div>
+                {/* Max Absolute Values (Plain text format) */}
+                <div className="no-print" style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '0.95rem' }}>
+                   <span><strong>|V| max:</strong> {maxAbsoluteShear.toFixed(2)} {forceUnit}</span>
+                   <span><strong>|M| max:</strong> {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m</span>
                 </div>
 
                 <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px' }}>
