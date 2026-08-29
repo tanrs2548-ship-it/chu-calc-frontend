@@ -1,7 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot, ReferenceLine } from 'recharts'
 import './App.css'
+
+// ==========================================
+// GLOBAL HELPER FUNCTIONS
+// ==========================================
+const formatYAxis = (tickItem) => {
+  if (tickItem === undefined || tickItem === null) return '0';
+  return tickItem >= 10000 || tickItem <= -10000 ? (tickItem / 1000).toFixed(1) + 'k' : tickItem.toLocaleString();
+};
+
+const handlePrintPDF = () => { 
+  window.print(); 
+};
+
+const getMaxMinObj = (data, key) => {
+  if (!data || data.length === 0) return { max: null, min: null };
+  let max = data[0], min = data[0];
+  data.forEach(d => {
+    if (d[key] > max[key]) max = d;
+    if (d[key] < min[key]) min = d;
+  });
+  return { max, min };
+};
+
+const PIXELS_PER_GRID = 50;
 
 function App() {
   // ==========================================
@@ -11,7 +35,6 @@ function App() {
   const [activeTab, setActiveTab] = useState('beam')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showFormulaModal, setShowFormulaModal] = useState(false)
-  const PIXELS_PER_GRID = 50
 
   // Unit Converter State
   const [convVal, setConvVal] = useState(1)
@@ -35,20 +58,15 @@ function App() {
   }
 
   // ==========================================
-  // HELPER COMPONENTS & FUNCTIONS
+  // SVG RENDER COMPONENTS
   // ==========================================
-  const formatYAxis = (tickItem) => {
-    if (tickItem === undefined || tickItem === null) return '0';
-    return tickItem >= 10000 || tickItem <= -10000 ? (tickItem / 1000).toFixed(1) + 'k' : tickItem.toLocaleString();
-  }
-
   const RenderSupportSVG = ({ cx, cy, type, dir }) => {
     const isV = dir === 'vertical';
     const color = theme.supportOrange;
     if (type === 'pin') {
       return isV
         ? <g><polygon points={`${cx-5},${cy} ${cx-20},${cy-10} ${cx-20},${cy+10}`} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
-        : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx-15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
+        : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx+15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
     }
     if (type === 'roller') {
       return isV
@@ -156,18 +174,6 @@ function App() {
     return (convVal * multiplier).toFixed(4);
   }
 
-  const getMaxMinObj = (data, key) => {
-    if (!data || data.length === 0) return { max: null, min: null };
-    let max = data[0], min = data[0];
-    data.forEach(d => {
-      if (d[key] > max[key]) max = d;
-      if (d[key] < min[key]) min = d;
-    });
-    return { max, min };
-  };
-
-  const handlePrintPDF = () => { window.print(); }
-
   // ==========================================
   // 1. BEAM ANALYSIS STATES
   // ==========================================
@@ -181,9 +187,6 @@ function App() {
     { id: 1, type: "point", magnitude: 2, x: 1 },
     { id: 2, type: "distributed", magnitude: 2, start_x: 2, end_x: 4 }
   ])
-  const [useEI, setUseEI] = useState(true)
-  const [beamE, setBeamE] = useState(200) 
-  const [beamI, setBeamI] = useState(5000) 
   const [chartData, setChartData] = useState([])
   const [beamReactions, setBeamReactions] = useState([])
   const [tabularResults, setTabularResults] = useState([])
@@ -239,12 +242,13 @@ function App() {
 
   const shearExtremes = getMaxMinObj(chartData, 'shear');
   const momentExtremes = getMaxMinObj(chartData, 'moment');
+  const maxAbsoluteShear = chartData.length > 0 ? Math.max(...chartData.map(d => Math.abs(d.shear || 0))) : 0;
+  const maxAbsoluteMoment = chartData.length > 0 ? Math.max(...chartData.map(d => Math.abs(d.moment || 0))) : 0;
 
   const analyzeBeam = async () => {
     setIsAnalyzing(true);
     await new Promise(r => setTimeout(r, 1500));
     try {
-      const calculatedEI = Number(beamE) * Number(beamI);
       const payload = {
         beam_length: safeBeamLength,
         supports: beamSupports.map(s => ({ ...s, x: Number(s.x) })),
@@ -253,41 +257,29 @@ function App() {
           if (l.type === 'moment') return { type: "moment", magnitude: Number(l.magnitude), x: Number(l.x), direction: l.direction }
           return { type: "distributed", magnitude: Number(l.magnitude), start_x: Number(l.start_x), end_x: Number(l.end_x) }
         }),
-        ei: useEI ? calculatedEI : null,
+        ei: null,
         unit: forceUnit,
         analysis_type: "determinate"
       };
+      
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
+      
       if (!response.data || !response.data.diagram_data || !response.data.diagram_data.x) {
          throw new Error("Invalid response from server");
       }
 
       const data = response.data.diagram_data;
-      const supportXPositions = beamSupports.filter(s => s.type !== 'free').map(s => Number(s.x));
       const formattedData = data.x.map((xValue, index) => {
-        let def = (data.deflection && data.deflection[index] !== undefined) ? data.deflection[index] : null;
-        if (def === null) {
-          let leftSupArray = supportXPositions.filter(sx => sx <= xValue);
-          let leftSup = leftSupArray.length > 0 ? Math.max(...leftSupArray) : 0;
-          let rightSupArray = supportXPositions.filter(sx => sx > xValue);
-          if (rightSupArray.length === 0) {
-            let localX = xValue - leftSup; def = -1.2 * Math.pow(localX, 1.8);
-          } else if (leftSupArray.length === 0) {
-            let rightSup = Math.min(...rightSupArray); let localX = rightSup - xValue; def = -1.2 * Math.pow(localX, 1.8);
-          } else {
-            let rightSup = Math.min(...rightSupArray); let spanLen = rightSup - leftSup || 1; let localX = xValue - leftSup; def = -1.5 * Math.sin((localX / spanLen) * Math.PI);
-          }
-        }
-        if (supportXPositions.some(sx => Math.abs(sx - xValue) < 0.01)) def = 0;
-        return { x: xValue, shear: data.shear[index], moment: data.moment[index], deflection: def };
+        return { x: xValue, shear: data.shear[index], moment: data.moment[index], deflection: 0 };
       });
+
       setChartData(formattedData);
       setBeamReactions(response.data.reactions || []);
       setTabularResults(response.data.tabular_results || []);
       setBeamSteps(response.data.steps || []);
     } catch (error) {
       console.error("Analysis Error:", error);
-      alert("Calculation Error! Please check your supports and loads.");
+      alert("Calculation Error! Please check your supports and loads to ensure stability.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -303,9 +295,6 @@ function App() {
   const [gridScale, setGridScale] = useState(1.0) 
   const [trussSupports, setTrussSupports] = useState({})
   const [trussLoads, setTrussLoads] = useState({})
-  const [trussUseEI, setTrussUseEI] = useState(false)
-  const [trussE, setTrussE] = useState(200)
-  const [trussI, setTrussI] = useState(5000)
   const [trussAnalysisResult, setTrussAnalysisResult] = useState(null)
   const [trussLocalData, setTrussLocalData] = useState({ steps: [], rxns: {} })
   const [trussHistory, setTrussHistory] = useState([])
@@ -324,8 +313,6 @@ function App() {
     }
   }
 
-  const snapToGrid = (value) => Math.round(value / PIXELS_PER_GRID) * PIXELS_PER_GRID
-  
   const handleTrussNodeClick = (e, node) => {
     e.stopPropagation(); 
     if (selectedNodeId === node.id) { setSelectedNodeId(null);
@@ -338,7 +325,8 @@ function App() {
 
   const handleTrussCanvasClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const x = snapToGrid(e.clientX - rect.left), y = snapToGrid(e.clientY - rect.top)
+    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
     const clickedExistingNode = nodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
     if (clickedExistingNode) {
       if (selectedNodeId && selectedNodeId !== clickedExistingNode.id) {
@@ -493,7 +481,7 @@ function App() {
       const payload = {
         nodes: nodes.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
         elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })), 
-        supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: trussUseEI ? (Number(trussE) * Number(trussI)) : null
+        supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: null
       };
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
       if(!response.data) throw new Error("No Data from Server");
@@ -554,7 +542,8 @@ function App() {
 
   const handleFrameCanvasClick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const x = snapToGrid(e.clientX - rect.left), y = snapToGrid(e.clientY - rect.top)
+    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
     const clickedExistingNode = fNodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
     if (clickedExistingNode) {
       if (fSelectedNodeId && fSelectedNodeId !== clickedExistingNode.id) {
@@ -695,6 +684,23 @@ function App() {
   const inputStyle = { width: '80px', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}`, marginLeft: '10px', fontFamily: '"Times New Roman", Times, serif', backgroundColor: '#fff', color: theme.textMain }
 
   // ==========================================
+  // ENTER KEY LISTENER
+  // ==========================================
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        if (currentView === 'statics') {
+          if (activeTab === 'beam') analyzeBeam();
+          else if (activeTab === 'truss' && nodes.length >= 3) runTrussAnalysis();
+          else if (activeTab === 'frame' && fNodes.length >= 2) runFrameStaticsAnalysis();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
+
+  // ==========================================
   // RENDER HOME DASHBOARD
   // ==========================================
   if (currentView === 'home') {
@@ -719,10 +725,13 @@ function App() {
           >
             <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#28a745', backgroundColor: '#e6f4ea', padding: '4px 8px', borderRadius: '12px' }}>● Ready to Use</span>
             <svg width="60" height="40" viewBox="0 0 100 50" style={{ marginBottom: '15px' }}>
+              <defs>
+                <marker id="arrowHome" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
+              </defs>
               <line x1="10" y1="40" x2="90" y2="40" stroke={theme.textMain} strokeWidth="4" />
               <polygon points="10,40 5,50 15,50" fill={theme.supportOrange} />
               <circle cx="90" cy="45" r="5" fill={theme.supportOrange} />
-              <line x1="50" y1="10" x2="50" y2="35" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+              <line x1="50" y1="10" x2="50" y2="35" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowHome)" />
             </svg>
             <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.textMain }}>1. Engineering Mechanics Statics</h2>
             <p style={{ margin: 0, color: '#666', fontSize: '0.95rem' }}>Beam, Truss, and Frame Equilibrium Analysis.</p>
@@ -866,7 +875,9 @@ function App() {
       )}
 
       <style>{`
-        .app-bg { background-color: ${theme.bg}; min-height: 100vh; padding: 35px; }
+        #root { max-width: 100% !important; margin: 0 !important; padding: 0 !important; border: none !important; box-shadow: none !important; text-align: left !important; }
+        body { margin: 0; padding: 0; background-color: ${theme.bg}; }
+        .app-bg { background-color: ${theme.bg}; min-height: 100vh; padding: 35px 20px; }
         .report-document { width: 100%; max-width: 210mm; margin: 0 auto 40px auto; background: ${theme.cardBg}; padding: 20mm; box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.08); border-radius: 4px; }
         @media print {
           @page { size: A4 portrait; margin: 12mm; }
@@ -1024,6 +1035,17 @@ function App() {
 
             {chartData.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                
+                {/* Max Shear & Moment Indicator Boxes */}
+                <div className="no-print" style={{ display: 'flex', gap: '20px', justifyContent: 'center', marginBottom: '10px' }}>
+                   <div style={{ padding: '12px 24px', backgroundColor: '#e6f4ea', border: '2px solid #28a745', borderRadius: '8px', color: '#155724', fontWeight: 'bold', fontSize: '1.2rem', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                     |V| max = {maxAbsoluteShear.toFixed(2)} {forceUnit}
+                   </div>
+                   <div style={{ padding: '12px 24px', backgroundColor: '#fff3cd', border: '2px solid #ffc107', borderRadius: '8px', color: '#856404', fontWeight: 'bold', fontSize: '1.2rem', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
+                     |M| max = {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m
+                   </div>
+                </div>
+
                 <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px' }}>
                   <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>3. Shear Force Diagram (SFD)</h4>
                   <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
@@ -1161,7 +1183,7 @@ function App() {
               <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
-            {/* Presets Bar */}
+            {/* Truss Presets */}
             <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: theme.lightGray, padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#000' }}>Presets:</span>
               <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #000', backgroundColor: '#fff', color: '#000', fontWeight: 'bold' }}>Pratt Truss</button>
@@ -1175,16 +1197,6 @@ function App() {
                   <button onClick={clearTrussCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#fff', color: '#000', border: '1px solid #000', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
                 </div>
                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <label style={{ fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={trussUseEI} onChange={(e) => setTrussUseEI(e.target.checked)} /> Consider EI
-                  </label>
-                  {trussUseEI && (
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                      <input type="number" placeholder="E" value={trussE} onChange={(e) => setTrussE(e.target.value)} style={{ width: '55px', padding: '2px' }} title="Elastic Modulus E" />
-                      <span>×</span>
-                      <input type="number" placeholder="I" value={trussI} onChange={(e) => setTrussI(e.target.value)} style={{ width: '55px', padding: '2px' }} title="Moment of Inertia I" />
-                    </div>
-                  )}
                   <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
                     <select value={gridScale} onChange={(e) => setGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
                       {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0].map(v => <option key={v} value={v}>{v.toFixed(1)}m</option>)}
@@ -1230,7 +1242,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
@@ -1263,6 +1275,7 @@ function App() {
                       const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
                       if (!n1 || !n2) return null;
                       
+                      // Zero-Force Member Visual Check
                       const memberName1 = `${n1.name}${n2.name}`;
                       const memberName2 = `${n2.name}${n1.name}`;
                       const resMember = trussAnalysisResult?.members?.find(m => m.name === memberName1 || m.name === memberName2);
@@ -1362,7 +1375,7 @@ function App() {
                   ))}
                 </div>
 
-                <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>4. Truss Equilibrium & Member Forces {trussUseEI ? `(EI = ${(Number(trussE)*Number(trussI)).toLocaleString()})` : ''}</h4>
+                <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>4. Truss Equilibrium & Member Forces</h4>
                 <div style={{ display: 'flex', gap: '30px', marginBottom: '10px', fontSize: '0.95rem' }}>
                   <div>Max Span: <strong>{trussDims.totalWidth.toFixed(2)} m</strong></div>
                   <div>Max Height: <strong>{trussDims.totalHeight.toFixed(2)} m</strong></div>
@@ -1619,7 +1632,7 @@ function App() {
                           )}
                           {Number(force.fx) !== 0 && (
                             <>
-                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                              <line x1={node.x} y1={force.fx > 0 ? node.x - 40 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 40} y2={node.y} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
                               <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.textMain} fontWeight="bold">{force.fx} {fForceUnit}</text>
                             </>
                           )}
