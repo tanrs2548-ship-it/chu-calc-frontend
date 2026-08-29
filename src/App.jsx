@@ -234,7 +234,7 @@ function App() {
 
   const analyzeBeam = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 1500)); // 1. ลดเวลาโหลดเหลือ 1.5 วินาที
     try {
       const calculatedEI = Number(beamE) * Number(beamI);
       const payload = {
@@ -250,6 +250,12 @@ function App() {
         analysis_type: "determinate"
       };
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
+      
+      // ดักจับ Error ป้องกันจอขาว หาก Backend ตอบกลับมาไม่สมบูรณ์
+      if (!response.data || !response.data.diagram_data || !response.data.diagram_data.x) {
+         throw new Error("Invalid response from server");
+      }
+
       const data = response.data.diagram_data;
       const supportXPositions = beamSupports.filter(s => s.type !== 'free').map(s => Number(s.x));
       const formattedData = data.x.map((xValue, index) => {
@@ -274,8 +280,8 @@ function App() {
       setTabularResults(response.data.tabular_results || []);
       setBeamSteps(response.data.steps || []);
     } catch (error) {
-      console.error("Error:", error);
-      alert("Calculation failed! Please check inputs.");
+      console.error("Analysis Error:", error);
+      alert("Calculation Error! Please check your supports and loads to ensure stability.");
     } finally {
       setIsAnalyzing(false);
     }
@@ -434,7 +440,7 @@ function App() {
 
   const runTrussAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 1500)); // ลดเวลาโหลด
     try {
       const cleanedElements = autoCleanMesh(nodes, elements);
       setElements(cleanedElements);
@@ -484,9 +490,11 @@ function App() {
         supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: trussUseEI ? (Number(trussE) * Number(trussI)) : null
       };
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
+      if(!response.data) throw new Error("No Data from Server");
       setTrussAnalysisResult(response.data);
     } catch (error) {
-      console.error("Truss Analysis Error:", error); alert("Truss calculation failed! Please check your FastAPI backend.");
+      console.error("Truss Analysis Error:", error); 
+      alert("Analysis Failed! Is your Truss unstable or unconstrained?");
     } finally { setIsAnalyzing(false); }
   }
 
@@ -592,7 +600,7 @@ function App() {
 
   const runFrameStaticsAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 1500)); // ลดเวลาโหลด
     try {
       const fRxns = {}; const fSteps = []; fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
       let sumFx = 0; let sumFy = 0;
@@ -673,6 +681,8 @@ function App() {
           } else { fSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate.`); }
       } else { fSteps.push("No supports defined."); }
       setFrameLocalData({ steps: fSteps, rxns: fRxns, analyzed: true });
+    } catch (error) {
+      alert("Error calculating Frame Reactions");
     } finally { setIsAnalyzing(false); }
   }
 
@@ -686,10 +696,11 @@ function App() {
       <div style={{ backgroundColor: theme.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '60px', fontFamily: '"Times New Roman", Times, serif' }}>
         
         {/* Header Dashboard */}
-        <div style={{ textAlign: 'center', marginBottom: '50px' }}>
-          <h1 style={{ fontSize: '4.5rem', letterSpacing: '8px', color: theme.textMain, margin: '0 0 10px 0', fontWeight: 'bold' }}>CHU CALC</h1>
+        <div style={{ textAlign: 'center', marginBottom: '60px' }}>
+          <h1 style={{ fontSize: '4.5rem', letterSpacing: '8px', color: theme.textMain, margin: '0 0 15px 0', fontWeight: 'bold' }}>CHU CALC</h1>
           <p style={{ fontStyle: 'italic', color: '#555', fontSize: '1.2rem', margin: 0, letterSpacing: '2px', textTransform: 'uppercase' }}>Advanced Structural Engineering Suite</p>
-          <div style={{ width: '60px', height: '4px', backgroundColor: theme.supportOrange, margin: '20px auto 0 auto' }}></div>
+          {/* 2. ขยับเส้นคั่นไม่ให้เบียดตัวหนังสือ */}
+          <div style={{ width: '80px', height: '4px', backgroundColor: theme.supportOrange, margin: '30px auto 0 auto' }}></div>
         </div>
         
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '30px', maxWidth: '900px', width: '100%', padding: '0 20px' }}>
@@ -789,8 +800,9 @@ function App() {
         </div>
 
       </div>
-    )
-  }
+    </div>
+  )
+}
 
   // ==========================================
   // RENDER STATICS SUITE APP
@@ -1214,7 +1226,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
@@ -1247,6 +1259,7 @@ function App() {
                       const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
                       if (!n1 || !n2) return null;
                       
+                      // Zero-Force Member Visual Check
                       const memberName1 = `${n1.name}${n2.name}`;
                       const memberName2 = `${n2.name}${n1.name}`;
                       const resMember = trussAnalysisResult?.members?.find(m => m.name === memberName1 || m.name === memberName2);
