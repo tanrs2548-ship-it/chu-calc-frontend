@@ -32,7 +32,7 @@ function App() {
   // GLOBAL STATES
   // ==========================================
   const [currentView, setCurrentView] = useState('home')
-  const [activeTab, setActiveTab] = useState('beam')
+  const [activeTab, setActiveTab] = useState('vectors') // Set Vectors as default
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showFormulaModal, setShowFormulaModal] = useState(false)
 
@@ -175,6 +175,50 @@ function App() {
   }
 
   // ==========================================
+  // 0. FORCE VECTORS STATES
+  // ==========================================
+  const [vectorLoads, setVectorLoads] = useState([
+    { id: 1, magnitude: 100, angle: 45 },
+    { id: 2, magnitude: 150, angle: 120 }
+  ]);
+  const [vectorResult, setVectorResult] = useState(null);
+
+  const addVectorLoad = () => setVectorLoads([...vectorLoads, { id: Date.now(), magnitude: 50, angle: 0 }]);
+  const updateVectorLoad = (id, field, val) => setVectorLoads(vectorLoads.map(v => v.id === id ? { ...v, [field]: Number(val) } : v));
+  const removeVectorLoad = (id) => setVectorLoads(vectorLoads.filter(v => v.id !== id));
+
+  const analyzeVectors = () => {
+    setIsAnalyzing(true);
+    setTimeout(() => {
+      let sumFx = 0;
+      let sumFy = 0;
+      const steps = [];
+
+      vectorLoads.forEach((f, i) => {
+        const rad = (f.angle * Math.PI) / 180;
+        const fx = f.magnitude * Math.cos(rad);
+        const fy = f.magnitude * Math.sin(rad);
+        sumFx += fx;
+        sumFy += fy;
+        steps.push({
+          id: f.id,
+          name: `F${i + 1}`,
+          fx: fx,
+          fy: fy
+        });
+      });
+
+      const rMag = Math.sqrt(sumFx ** 2 + sumFy ** 2);
+      let rAng = (Math.atan2(sumFy, sumFx) * 180) / Math.PI;
+      if (rAng < 0) rAng += 360;
+
+      setVectorResult({ sumFx, sumFy, rMag, rAng, steps });
+      setIsAnalyzing(false);
+    }, 600);
+  };
+
+
+  // ==========================================
   // 1. BEAM ANALYSIS STATES
   // ==========================================
   const [beamLength, setBeamLength] = useState(4)
@@ -187,6 +231,9 @@ function App() {
     { id: 1, type: "point", magnitude: 2, x: 1 },
     { id: 2, type: "distributed", magnitude: 2, start_x: 2, end_x: 4 }
   ])
+  const [useEI, setUseEI] = useState(true)
+  const [beamE, setBeamE] = useState(200) 
+  const [beamI, setBeamI] = useState(5000) 
   const [chartData, setChartData] = useState([])
   const [beamReactions, setBeamReactions] = useState([])
   const [tabularResults, setTabularResults] = useState([])
@@ -597,7 +644,7 @@ function App() {
 
   const runFrameStaticsAnalysis = async () => {
     setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 1500)); // ลดเวลาโหลด
+    await new Promise(r => setTimeout(r, 1500));
     try {
       const fRxns = {}; const fSteps = []; fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
       let sumFx = 0; let sumFy = 0;
@@ -695,6 +742,7 @@ function App() {
           if (activeTab === 'beam') analyzeBeam();
           else if (activeTab === 'truss' && nodes.length >= 3) runTrussAnalysis();
           else if (activeTab === 'frame' && fNodes.length >= 2) runFrameStaticsAnalysis();
+          else if (activeTab === 'vectors' && vectorLoads.length > 0) analyzeVectors();
         }
       }
     };
@@ -736,8 +784,9 @@ function App() {
               <line x1="50" y1="10" x2="50" y2="35" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowHome)" />
             </svg>
             <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.textMain }}>1. Engineering Mechanics Statics</h2>
-            <p style={{ margin: 0, color: '#666', fontSize: '0.95rem' }}>Beam, Truss, and Frame Equilibrium Analysis.</p>
+            <p style={{ margin: 0, color: '#666', fontSize: '0.95rem' }}>Vectors, Beam, Truss, and Frame Equilibrium Analysis.</p>
             <div style={{ marginTop: '20px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+              <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', color: '#000', padding: '4px 8px', borderRadius: '4px' }}>Vectors</span>
               <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', color: '#000', padding: '4px 8px', borderRadius: '4px' }}>Beams</span>
               <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', color: '#000', padding: '4px 8px', borderRadius: '4px' }}>Trusses</span>
               <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', color: '#000', padding: '4px 8px', borderRadius: '4px' }}>Frames</span>
@@ -910,11 +959,153 @@ function App() {
         </div>
 
         {/* Structure Selector Tabs */}
-        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center' }}>
+        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button onClick={() => setActiveTab('vectors')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'vectors' ? '#000' : '#fff', color: activeTab === 'vectors' ? '#fff' : '#000' }}>Force Vectors</button>
           <button onClick={() => setActiveTab('beam')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'beam' ? '#000' : '#fff', color: activeTab === 'beam' ? '#fff' : '#000' }}>Simple Beam</button>
           <button onClick={() => setActiveTab('truss')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'truss' ? '#000' : '#fff', color: activeTab === 'truss' ? '#fff' : '#000' }}>Truss Builder</button>
           <button onClick={() => setActiveTab('frame')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #000', backgroundColor: activeTab === 'frame' ? '#000' : '#fff', color: activeTab === 'frame' ? '#fff' : '#000' }}>Frame Reactions</button>
         </div>
+
+        {/* ======================= TAB 0: FORCE VECTORS ======================= */}
+        {activeTab === 'vectors' && (
+          <div className="report-document">
+             <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.textMain}`, paddingBottom: '12px', marginBottom: '20px' }}>
+              <div>
+                <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>2D Force System Analysis</h1>
+                <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#666' }}>Project: Vector Addition & Equilibrium</p>
+              </div>
+              <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: theme.textMain, color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: 'none', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
+            </div>
+
+            <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#fff' }}>
+               <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>1. Force Vectors Visualization</h3>
+               
+               <div style={{ width: '100%', overflow: 'hidden', display: 'flex', justifyContent: 'center', backgroundColor: '#fdfdfd', border: `1px solid ${theme.border}`, borderRadius: '6px' }}>
+                 <svg width="100%" height="400" viewBox="0 0 1000 600" style={{ display: 'block' }}>
+                    {/* Grid & Axes */}
+                    <g opacity="0.3">
+                       <line x1="500" y1="0" x2="500" y2="600" stroke="#000" strokeWidth="2" strokeDasharray="5,5" />
+                       <line x1="0" y1="300" x2="1000" y2="300" stroke="#000" strokeWidth="2" strokeDasharray="5,5" />
+                    </g>
+                    <text x="960" y="320" fontSize="16" fontWeight="bold">X</text>
+                    <text x="515" y="30" fontSize="16" fontWeight="bold">Y</text>
+                    <circle cx="500" cy="300" r="5" fill="#000" />
+
+                    {/* Scale Logic */}
+                    {(() => {
+                        const cx = 500; const cy = 300;
+                        const vMax = vectorResult ? Math.max(...vectorLoads.map(v=>v.magnitude), vectorResult.rMag) : Math.max(10, ...vectorLoads.map(v=>v.magnitude));
+                        const scaleFactor = 220 / (vMax || 1); // Max 220px length from center
+
+                        return (
+                          <>
+                            {/* Input Vectors */}
+                            {vectorLoads.map((v, i) => {
+                               if (!v.magnitude) return null;
+                               const rad = (v.angle * Math.PI) / 180;
+                               const xEnd = cx + v.magnitude * Math.cos(rad) * scaleFactor;
+                               const yEnd = cy - v.magnitude * Math.sin(rad) * scaleFactor;
+                               return (
+                                 <g key={v.id}>
+                                   <line x1={cx} y1={cy} x2={xEnd} y2={yEnd} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                                   <text x={xEnd + (xEnd > cx ? 10 : -35)} y={yEnd + (yEnd > cy ? 20 : -10)} fill={theme.accent} fontSize="14" fontWeight="bold">F{i+1}</text>
+                                 </g>
+                               )
+                            })}
+                            
+                            {/* Resultant Vector */}
+                            {vectorResult && vectorResult.rMag > 0.01 && (
+                                <g>
+                                  <line 
+                                    x1={cx} y1={cy} 
+                                    x2={cx + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * scaleFactor} 
+                                    y2={cy - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * scaleFactor} 
+                                    stroke={theme.supportOrange} strokeWidth="5" markerEnd="url(#arrowReaction)" 
+                                  />
+                                  <text 
+                                    x={cx + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * scaleFactor + 15} 
+                                    y={cy - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * scaleFactor - 15} 
+                                    fill={theme.supportOrange} fontSize="16" fontWeight="bold"
+                                  >
+                                    R = {vectorResult.rMag.toFixed(2)}
+                                  </text>
+                                </g>
+                            )}
+                          </>
+                        )
+                    })()}
+                 </svg>
+               </div>
+            </div>
+
+            <div className="no-print" style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
+               <div style={{ flex: '1', backgroundColor: '#fff', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <h4 style={{ margin: 0, fontSize: '1.1rem' }}>Force Inputs</h4>
+                    <button onClick={addVectorLoad} style={{ backgroundColor: '#000', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+ Add Force</button>
+                  </div>
+                  
+                  {vectorLoads.map((v, index) => (
+                     <div key={v.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px', paddingBottom: '10px', borderBottom: `1px dashed ${theme.border}` }}>
+                        <span style={{ fontWeight: 'bold', width: '30px' }}>F{index + 1}:</span>
+                        <label>Mag:</label>
+                        <input type="number" value={v.magnitude} onChange={(e) => updateVectorLoad(v.id, 'magnitude', e.target.value)} style={{ width: '80px', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        <label>Angle (deg):</label>
+                        <input type="number" value={v.angle} onChange={(e) => updateVectorLoad(v.id, 'angle', e.target.value)} style={{ width: '80px', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }} title="Angle from positive X-axis (CCW)" />
+                        <button onClick={() => removeVectorLoad(v.id)} style={{ backgroundColor: '#fff', color: '#000', border: '1px solid #000', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
+                     </div>
+                  ))}
+               </div>
+            </div>
+
+            <div className="no-print" style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <button onClick={analyzeVectors} disabled={vectorLoads.length === 0} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: vectorLoads.length === 0 ? '#ccc' : theme.textMain, color: '#fff', border: 'none', borderRadius: '8px', cursor: vectorLoads.length === 0 ? 'not-allowed' : 'pointer' }}>Resolve Force Vectors</button>
+            </div>
+
+            {vectorResult && (
+               <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}` }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Vector Component Analysis (Calculation Steps)</h4>
+                  
+                  <div style={{ backgroundColor: theme.lightGray, padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, overflowX: 'auto' }}>
+                     <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
+                       <thead>
+                         <tr style={{ borderBottom: '2px solid #000' }}>
+                           <th style={{ padding: '8px 4px' }}>Force</th>
+                           <th style={{ padding: '8px 4px' }}>Fx (cos)</th>
+                           <th style={{ padding: '8px 4px' }}>Fy (sin)</th>
+                         </tr>
+                       </thead>
+                       <tbody>
+                         {vectorResult.steps.map(s => (
+                           <tr key={s.id} style={{ borderBottom: '1px solid #ddd' }}>
+                             <td style={{ padding: '8px 4px', fontWeight: 'bold' }}>{s.name}</td>
+                             <td style={{ padding: '8px 4px' }}>{s.fx.toFixed(2)}</td>
+                             <td style={{ padding: '8px 4px' }}>{s.fy.toFixed(2)}</td>
+                           </tr>
+                         ))}
+                         <tr style={{ borderTop: '2px solid #000', backgroundColor: '#f0f0f0' }}>
+                           <td style={{ padding: '8px 4px', fontWeight: 'bold' }}>SUM (Σ)</td>
+                           <td style={{ padding: '8px 4px', fontWeight: 'bold', color: theme.accent }}>{vectorResult.sumFx.toFixed(2)}</td>
+                           <td style={{ padding: '8px 4px', fontWeight: 'bold', color: theme.accent }}>{vectorResult.sumFy.toFixed(2)}</td>
+                         </tr>
+                       </tbody>
+                     </table>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
+                     <div style={{ padding: '15px', border: `2px solid ${theme.supportOrange}`, borderRadius: '8px', backgroundColor: '#fffdf5' }}>
+                        <span style={{ display: 'block', fontSize: '0.9rem', color: '#666', marginBottom: '5px' }}>Resultant Magnitude (R):</span>
+                        <strong style={{ fontSize: '1.5rem', color: theme.supportOrange }}>{vectorResult.rMag.toFixed(2)}</strong>
+                     </div>
+                     <div style={{ padding: '15px', border: `2px solid ${theme.supportOrange}`, borderRadius: '8px', backgroundColor: '#fffdf5' }}>
+                        <span style={{ display: 'block', fontSize: '0.9rem', color: '#666', marginBottom: '5px' }}>Resultant Angle (θ):</span>
+                        <strong style={{ fontSize: '1.5rem', color: theme.supportOrange }}>{vectorResult.rAng.toFixed(2)}°</strong>
+                     </div>
+                  </div>
+               </div>
+            )}
+          </div>
+        )}
 
         {/* ======================= TAB 1: BEAM ======================= */}
         {activeTab === 'beam' && (
