@@ -827,7 +827,7 @@ function App() {
         #root { max-width: 100% !important; margin: 0 !important; padding: 0 !important; border: none !important; box-shadow: none !important; text-align: left !important; }
         body { margin: 0; padding: 0; background-color: ${theme.bg}; }
         .app-bg { background-color: ${theme.bg}; min-height: 100vh; padding: 35px 20px; }
-        .report-document { width: 100%; max-width: 210mm; margin: 0 auto 40px auto; background: ${theme.cardBg}; padding: 20mm; box-sizing: border-box; box-shadow: 0 8px 24px rgba(0,0,0,0.08); border-radius: 4px; }
+        .report-document { width: 100%; max-width: 1600px; margin: 0 auto 40px auto; background: ${theme.cardBg}; padding: 40px; box-sizing: border-box; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border-radius: 8px; border: 1px solid #e0e0e0; }
         @media print {
           @page { size: A4 portrait; margin: 12mm; }
           body, html { background: #ffffff !important; padding: 0 !important; margin: 0 !important; -webkit-print-color-adjust: exact; }
@@ -841,7 +841,7 @@ function App() {
         }
       `}</style>
 
-      <div style={{ maxWidth: '1250px', margin: '0 auto' }}>
+      <div style={{ width: '100%', maxWidth: '1600px', margin: '0 auto' }}>
         
         {/* Top Header Navigation with Formula Button */}
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
@@ -1005,8 +1005,8 @@ function App() {
                        <thead>
                          <tr style={{ borderBottom: '2px solid #000' }}>
                            <th style={{ padding: '8px 4px' }}>Force</th>
-                           <th style={{ padding: '8px 4px' }}>Fx</th>
-                           <th style={{ padding: '8px 4px' }}>Fy</th>
+                           <th style={{ padding: '8px 4px' }}>Fx ({vectorUnit})</th>
+                           <th style={{ padding: '8px 4px' }}>Fy ({vectorUnit})</th>
                          </tr>
                        </thead>
                        <tbody>
@@ -1028,7 +1028,7 @@ function App() {
 
                   <div style={{ display: 'flex', gap: '30px', justifyContent: 'flex-start', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
                      <span><strong>|R| (Resultant):</strong> {vectorResult.rMag.toFixed(2)} {vectorUnit}</span>
-                     <span><strong>θ (Angle):</strong> {vectorResult.refAng.toFixed(2)}° {vectorResult.dirSymbol}</span>
+                     <span><strong>θ (Angle):</strong> {vectorResult.refAng.toFixed(2)}° <span style={{fontSize: '0.9rem', color: '#555'}}>({vectorResult.dirSymbol})</span></span>
                   </div>
                </div>
             )}
@@ -1158,7 +1158,7 @@ function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 
                 {/* Max Absolute Values (Plain text format) */}
-                <div className="no-print" style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
+                <div style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
                    <span><strong>|V| max:</strong> {maxAbsoluteShear.toFixed(2)} {forceUnit}</span>
                    <span><strong>|M| max:</strong> {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m</span>
                 </div>
@@ -1359,7 +1359,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
