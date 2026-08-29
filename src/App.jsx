@@ -32,7 +32,7 @@ function App() {
   // GLOBAL STATES
   // ==========================================
   const [currentView, setCurrentView] = useState('home')
-  const [activeTab, setActiveTab] = useState('vectors') // Set Vectors as default
+  const [activeTab, setActiveTab] = useState('vectors')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showFormulaModal, setShowFormulaModal] = useState(false)
 
@@ -177,6 +177,7 @@ function App() {
   // ==========================================
   // 0. FORCE VECTORS STATES
   // ==========================================
+  const [vectorUnit, setVectorUnit] = useState('kN');
   const [vectorLoads, setVectorLoads] = useState([
     { id: 1, magnitude: 100, angle: 60, quadrant: 3, refAxis: 'x', direction: 'out' },
     { id: 2, magnitude: 50, angle: 20, quadrant: 1, refAxis: 'x', direction: 'out' }
@@ -191,22 +192,15 @@ function App() {
     let baseAngle = Number(v.angle) || 0;
     let trueAngle = 0;
     
-    if (v.quadrant === 1) {
-      trueAngle = v.refAxis === 'x' ? baseAngle : 90 - baseAngle;
-    } else if (v.quadrant === 2) {
-      trueAngle = v.refAxis === 'x' ? 180 - baseAngle : 90 + baseAngle;
-    } else if (v.quadrant === 3) {
-      trueAngle = v.refAxis === 'x' ? 180 + baseAngle : 270 - baseAngle;
-    } else if (v.quadrant === 4) {
-      trueAngle = v.refAxis === 'x' ? 360 - baseAngle : 270 + baseAngle;
-    }
+    if (v.quadrant === 1) trueAngle = v.refAxis === 'x' ? baseAngle : 90 - baseAngle;
+    else if (v.quadrant === 2) trueAngle = v.refAxis === 'x' ? 180 - baseAngle : 90 + baseAngle;
+    else if (v.quadrant === 3) trueAngle = v.refAxis === 'x' ? 180 + baseAngle : 270 - baseAngle;
+    else if (v.quadrant === 4) trueAngle = v.refAxis === 'x' ? 360 - baseAngle : 270 + baseAngle;
 
     const drawRad = (trueAngle * Math.PI) / 180;
     
     let forceAngle = trueAngle;
-    if (v.direction === 'in') {
-      forceAngle = (trueAngle + 180) % 360;
-    }
+    if (v.direction === 'in') forceAngle = (trueAngle + 180) % 360;
     
     const forceRad = (forceAngle * Math.PI) / 180;
     const fx = v.magnitude * Math.cos(forceRad);
@@ -226,22 +220,13 @@ function App() {
         const { fx, fy, drawRad, isOut } = getVectorComponents(f);
         sumFx += fx;
         sumFy += fy;
-        steps.push({
-          id: f.id,
-          name: `F${i + 1}`,
-          fx: fx,
-          fy: fy,
-          drawRad: drawRad,
-          isOut: isOut,
-          magnitude: f.magnitude
-        });
+        steps.push({ id: f.id, name: `F${i + 1}`, fx: fx, fy: fy, drawRad: drawRad, isOut: isOut, magnitude: f.magnitude });
       });
 
       const rMag = Math.sqrt(sumFx ** 2 + sumFy ** 2);
       let rAng = (Math.atan2(sumFy, sumFx) * 180) / Math.PI;
       if (rAng < 0) rAng += 360;
 
-      // คำนวณมุมอ้างอิงให้ดูเป็นธรรมชาติ (1-90 องศา พร้อมบอกทิศ)
       const refAng = (Math.atan(Math.abs(sumFy) / (Math.abs(sumFx) || 0.0001)) * 180 / Math.PI);
       let dirSymbol = '';
       if (sumFx >= 0 && sumFy >= 0) dirSymbol = '↗ (Q1)';
@@ -268,9 +253,6 @@ function App() {
     { id: 1, type: "point", magnitude: 2, x: 1 },
     { id: 2, type: "distributed", magnitude: 2, start_x: 2, end_x: 4 }
   ])
-  const [useEI, setUseEI] = useState(true)
-  const [beamE, setBeamE] = useState(200) 
-  const [beamI, setBeamI] = useState(5000) 
   const [chartData, setChartData] = useState([])
   const [beamReactions, setBeamReactions] = useState([])
   const [tabularResults, setTabularResults] = useState([])
@@ -375,6 +357,7 @@ function App() {
   const [nodes, setNodes] = useState([])
   const [elements, setElements] = useState([])
   const [selectedNodeId, setSelectedNodeId] = useState(null)
+  const [trussUnit, setTrussUnit] = useState('kN')
   const [gridScale, setGridScale] = useState(1.0) 
   const [trussSupports, setTrussSupports] = useState({})
   const [trussLoads, setTrussLoads] = useState({})
@@ -554,9 +537,9 @@ function App() {
               if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
               const r_pin_y = -sumFy - r_roller_y; const r_pin_x = -sumFx;
               tRxns[pinId] = { fx: r_pin_x, fy: r_pin_y }; tRxns[rollerId] = { fx: 0, fy: r_roller_y };
-              tSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${forceUnit}`);
-              tSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${forceUnit}`);
-              tSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${forceUnit}`);
+              tSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${trussUnit}`);
+              tSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${trussUnit}`);
+              tSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${trussUnit}`);
           } else {
               tSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate or has non-standard supports.`);
           }
@@ -566,7 +549,7 @@ function App() {
       const payload = {
         nodes: nodes.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
         elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })), 
-        supports: trussSupports, loads: trussLoads, unit: forceUnit, ei: null
+        supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: null
       };
       const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
       if(!response.data) throw new Error("No Data from Server");
@@ -588,6 +571,7 @@ function App() {
   const [fLoads, setFLoads] = useState({}) 
   const [fDistLoads, setFDistLoads] = useState({}) 
   const [fPointLoadsOnElement, setFPointLoadsOnElement] = useState({})
+  const [fForceUnit, setFForceUnit] = useState('kN')
   const [fGridScale, setFGridScale] = useState(1.0)
   const [frameLocalData, setFrameLocalData] = useState({ steps: [], rxns: {}, analyzed: false })
   const [frameHistory, setFrameHistory] = useState([])
@@ -896,7 +880,7 @@ function App() {
                  <h3 style={{ margin: '0', color: theme.textMain, fontSize: '1.1rem' }}>1. Force Vectors Visualization</h3>
                  <div className="no-print" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                    <label style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Unit:</label>
-                   <select value={forceUnit} onChange={(e) => setForceUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
+                   <select value={vectorUnit} onChange={(e) => setVectorUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
                      <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
                    </select>
                  </div>
@@ -928,7 +912,6 @@ function App() {
                                const xOut = cx + v.magnitude * Math.cos(drawRad) * scaleFactor;
                                const yOut = cy - v.magnitude * Math.sin(drawRad) * scaleFactor;
                                
-                               // Calculate text position
                                const textOffX = xOut > cx ? 10 : -35;
                                const textOffY = yOut > cy ? 20 : -10;
 
@@ -1022,8 +1005,8 @@ function App() {
                        <thead>
                          <tr style={{ borderBottom: '2px solid #000' }}>
                            <th style={{ padding: '8px 4px' }}>Force</th>
-                           <th style={{ padding: '8px 4px' }}>Fx ({forceUnit})</th>
-                           <th style={{ padding: '8px 4px' }}>Fy ({forceUnit})</th>
+                           <th style={{ padding: '8px 4px' }}>Fx</th>
+                           <th style={{ padding: '8px 4px' }}>Fy</th>
                          </tr>
                        </thead>
                        <tbody>
@@ -1044,8 +1027,8 @@ function App() {
                   </div>
 
                   <div style={{ display: 'flex', gap: '30px', justifyContent: 'flex-start', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
-                     <span><strong>|R| (Resultant):</strong> {vectorResult.rMag.toFixed(2)} {forceUnit}</span>
-                     <span><strong>θ (Angle):</strong> {vectorResult.rAng.toFixed(2)}° <span style={{fontSize: '0.9rem', color: '#555'}}>({vectorResult.refAng.toFixed(2)}° {vectorResult.dirSymbol})</span></span>
+                     <span><strong>|R| (Resultant):</strong> {vectorResult.rMag.toFixed(2)} {vectorUnit}</span>
+                     <span><strong>θ (Angle):</strong> {vectorResult.refAng.toFixed(2)}° {vectorResult.dirSymbol}</span>
                   </div>
                </div>
             )}
@@ -1077,7 +1060,7 @@ function App() {
                 <div className="no-print" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                   <label style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Unit:</label>
                   <select value={forceUnit} onChange={(e) => setForceUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', border: `1px solid ${theme.border}`, fontFamily: '"Times New Roman", Times, serif' }}>
-                    <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="Ton">Ton</option>
+                    <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
                   </select>
                 </div>
               </div>
