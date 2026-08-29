@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot, ReferenceLine } from 'recharts'
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts'
 import './App.css'
 
 // ==========================================
@@ -255,8 +255,6 @@ function App() {
   ])
   const [chartData, setChartData] = useState([])
   const [beamReactions, setBeamReactions] = useState([])
-  const [tabularResults, setTabularResults] = useState([])
-  const [deflectionTable, setDeflectionTable] = useState([])
   const [beamSteps, setBeamSteps] = useState([])
   const [beamHistory, setBeamHistory] = useState([])
 
@@ -336,12 +334,11 @@ function App() {
 
       const data = response.data.diagram_data;
       const formattedData = data.x.map((xValue, index) => {
-        return { x: xValue, shear: data.shear[index], moment: data.moment[index], deflection: 0 };
+        return { x: xValue, shear: data.shear[index], moment: data.moment[index] };
       });
 
       setChartData(formattedData);
       setBeamReactions(response.data.reactions || []);
-      setTabularResults(response.data.tabular_results || []);
       setBeamSteps(response.data.steps || []);
     } catch (error) {
       console.error("Analysis Error:", error);
@@ -436,17 +433,6 @@ function App() {
   }
 
   const clearTrussCanvas = () => { saveTrussState(); setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
-
-  const calculateTrussDimensions = () => {
-    if (!nodes || nodes.length === 0) return { totalWidth: 0, totalHeight: 0 };
-    const minX = Math.min(...nodes.map(n => n.x)), maxX = Math.max(...nodes.map(n => n.x));
-    const minY = Math.min(...nodes.map(n => n.y)), maxY = Math.max(...nodes.map(n => n.y));
-    return {
-      totalWidth: ((maxX - minX) / PIXELS_PER_GRID) * gridScale,
-      totalHeight: ((maxY - minY) / PIXELS_PER_GRID) * gridScale
-    };
-  };
-  const trussDims = calculateTrussDimensions();
 
   const loadTrussPreset = (type) => {
     saveTrussState()
@@ -1009,8 +995,8 @@ function App() {
                        <thead>
                          <tr style={{ borderBottom: '2px solid #000' }}>
                            <th style={{ padding: '8px 4px' }}>Force</th>
-                           <th style={{ padding: '8px 4px' }}>Fx</th>
-                           <th style={{ padding: '8px 4px' }}>Fy</th>
+                           <th style={{ padding: '8px 4px' }}>Fx ({vectorUnit})</th>
+                           <th style={{ padding: '8px 4px' }}>Fy ({vectorUnit})</th>
                          </tr>
                        </thead>
                        <tbody>
@@ -1162,9 +1148,9 @@ function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 
                 {/* Max Absolute Values (Plain text format) */}
-                <div className="no-print" style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
-                   <span><strong>|V| max:</strong> {maxAbsoluteShear.toFixed(2)} {forceUnit}</span>
-                   <span><strong>|M| max:</strong> {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m</span>
+                <div style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '0.95rem', fontFamily: 'monospace', fontWeight: 'bold' }}>
+                   <span>|V| max = {maxAbsoluteShear.toFixed(2)} {forceUnit}</span>
+                   <span>|M| max = {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m</span>
                 </div>
 
                 <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px' }}>
@@ -1363,7 +1349,7 @@ function App() {
                         )}
                         {Number(force.fx) !== 0 && force.fx !== undefined && (
                           <>
-                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                            <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
                             <text x={node.x - 20} y={node.y - 15} fill={theme.textMain} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
                           </>
                         )}
