@@ -178,14 +178,45 @@ function App() {
   // 0. FORCE VECTORS STATES
   // ==========================================
   const [vectorLoads, setVectorLoads] = useState([
-    { id: 1, magnitude: 100, angle: 45 },
-    { id: 2, magnitude: 150, angle: 120 }
+    { id: 1, magnitude: 100, angle: 45, quadrant: 1, refAxis: 'x', direction: 'out' },
+    { id: 2, magnitude: 150, angle: 60, quadrant: 2, refAxis: 'x', direction: 'out' }
   ]);
   const [vectorResult, setVectorResult] = useState(null);
 
-  const addVectorLoad = () => setVectorLoads([...vectorLoads, { id: Date.now(), magnitude: 50, angle: 0 }]);
-  const updateVectorLoad = (id, field, val) => setVectorLoads(vectorLoads.map(v => v.id === id ? { ...v, [field]: Number(val) } : v));
+  const addVectorLoad = () => setVectorLoads([...vectorLoads, { id: Date.now(), magnitude: 50, angle: 0, quadrant: 1, refAxis: 'x', direction: 'out' }]);
+  const updateVectorLoad = (id, field, val) => setVectorLoads(vectorLoads.map(v => v.id === id ? { ...v, [field]: val } : v));
   const removeVectorLoad = (id) => setVectorLoads(vectorLoads.filter(v => v.id !== id));
+
+  // ฟังก์ชันคำนวณมุมจริงเทียบแกน X+ (0-360 องศา ทวนเข็มนาฬิกา)
+  const getVectorComponents = (v) => {
+    let baseAngle = Number(v.angle) || 0;
+    let trueAngle = 0;
+    
+    // หามุมวาด (ชี้ออกนอกจุดกำเนิดไปจตุภาคที่กำหนดเสมอ)
+    if (v.quadrant === 1) {
+      trueAngle = v.refAxis === 'x' ? baseAngle : 90 - baseAngle;
+    } else if (v.quadrant === 2) {
+      trueAngle = v.refAxis === 'x' ? 180 - baseAngle : 90 + baseAngle;
+    } else if (v.quadrant === 3) {
+      trueAngle = v.refAxis === 'x' ? 180 + baseAngle : 270 - baseAngle;
+    } else if (v.quadrant === 4) {
+      trueAngle = v.refAxis === 'x' ? 360 - baseAngle : 270 + baseAngle;
+    }
+
+    const drawRad = (trueAngle * Math.PI) / 180;
+    
+    // ถ้าแรง "พุ่งเข้า" (in) ทิศทางแรงจริงจะกลับ 180 องศา
+    let forceAngle = trueAngle;
+    if (v.direction === 'in') {
+      forceAngle = (trueAngle + 180) % 360;
+    }
+    
+    const forceRad = (forceAngle * Math.PI) / 180;
+    const fx = v.magnitude * Math.cos(forceRad);
+    const fy = v.magnitude * Math.sin(forceRad);
+    
+    return { fx, fy, drawRad, isOut: v.direction === 'out' };
+  };
 
   const analyzeVectors = () => {
     setIsAnalyzing(true);
@@ -195,16 +226,17 @@ function App() {
       const steps = [];
 
       vectorLoads.forEach((f, i) => {
-        const rad = (f.angle * Math.PI) / 180;
-        const fx = f.magnitude * Math.cos(rad);
-        const fy = f.magnitude * Math.sin(rad);
+        const { fx, fy, drawRad, isOut } = getVectorComponents(f);
         sumFx += fx;
         sumFy += fy;
         steps.push({
           id: f.id,
           name: `F${i + 1}`,
           fx: fx,
-          fy: fy
+          fy: fy,
+          drawRad: drawRad,
+          isOut: isOut,
+          magnitude: f.magnitude
         });
       });
 
@@ -750,127 +782,6 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   });
 
-  // ==========================================
-  // RENDER HOME DASHBOARD
-  // ==========================================
-  if (currentView === 'home') {
-    return (
-      <div style={{ backgroundColor: theme.bg, minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: '60px', fontFamily: '"Times New Roman", Times, serif' }}>
-        
-        {/* Header Dashboard */}
-        <div style={{ textAlign: 'center', marginBottom: '60px' }}>
-          <h1 style={{ fontSize: '4.5rem', letterSpacing: '8px', color: theme.textMain, margin: '0 0 15px 0', fontWeight: 'bold' }}>CHU CALC</h1>
-          <p style={{ fontStyle: 'italic', color: '#555', fontSize: '1.2rem', margin: 0, letterSpacing: '2px', textTransform: 'uppercase' }}>Advanced Structural Engineering Suite</p>
-          <div style={{ width: '80px', height: '4px', backgroundColor: theme.supportOrange, margin: '30px auto 0 auto' }}></div>
-        </div>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '30px', maxWidth: '900px', width: '100%', padding: '0 20px' }}>
-          
-          {/* Card 1: Active */}
-          <div 
-            onClick={() => setCurrentView('statics')}
-            style={{ position: 'relative', backgroundColor: '#fff', border: `2px solid ${theme.textMain}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'pointer', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', transition: 'all 0.2s' }}
-            onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-5px)'; e.currentTarget.style.borderColor = theme.supportOrange; }}
-            onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.borderColor = theme.textMain; }}
-          >
-            <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#28a745', backgroundColor: '#e6f4ea', padding: '4px 8px', borderRadius: '12px' }}>● Ready to Use</span>
-            <svg width="60" height="40" viewBox="0 0 100 50" style={{ marginBottom: '15px' }}>
-              <defs>
-                <marker id="arrowHome" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-              </defs>
-              <line x1="10" y1="40" x2="90" y2="40" stroke={theme.textMain} strokeWidth="4" />
-              <polygon points="10,40 5,50 15,50" fill={theme.supportOrange} />
-              <circle cx="90" cy="45" r="5" fill={theme.supportOrange} />
-              <line x1="50" y1="10" x2="50" y2="35" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowHome)" />
-            </svg>
-            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.textMain }}>1. Engineering Mechanics Statics</h2>
-            <p style={{ margin: 0, color: '#666', fontSize: '0.95rem' }}>Vectors, Beam, Truss, and Frame Equilibrium Analysis.</p>
-            <div style={{ marginTop: '20px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
-              <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', color: '#000', padding: '4px 8px', borderRadius: '4px' }}>Vectors</span>
-              <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', color: '#000', padding: '4px 8px', borderRadius: '4px' }}>Beams</span>
-              <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', color: '#000', padding: '4px 8px', borderRadius: '4px' }}>Trusses</span>
-              <span style={{ fontSize: '0.75rem', backgroundColor: '#eee', color: '#000', padding: '4px 8px', borderRadius: '4px' }}>Frames</span>
-            </div>
-          </div>
-
-          {/* Card 2: Disabled */}
-          <div style={{ position: 'relative', backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
-            <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#888', backgroundColor: '#e0e0e0', padding: '4px 8px', borderRadius: '12px' }}>🔒 Locked</span>
-            <svg width="50" height="40" viewBox="0 0 50 50" style={{ marginBottom: '15px', opacity: 0.5 }}>
-               <rect x="15" y="5" width="20" height="5" fill="#555" />
-               <rect x="22.5" y="10" width="5" height="30" fill="#555" />
-               <rect x="15" y="40" width="20" height="5" fill="#555" />
-            </svg>
-            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>2. Mechanics of Materials</h2>
-            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Stress, Strain, and Mohr's Circle (In Development).</p>
-          </div>
-
-          {/* Card 3: Disabled */}
-          <div style={{ position: 'relative', backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
-             <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#888', backgroundColor: '#e0e0e0', padding: '4px 8px', borderRadius: '12px' }}>🔒 Locked</span>
-            <svg width="60" height="40" viewBox="0 0 100 50" style={{ marginBottom: '15px', opacity: 0.5 }}>
-               <path d="M 10 40 Q 50 10 90 40" fill="none" stroke="#555" strokeWidth="3" strokeDasharray="4 4" />
-               <line x1="10" y1="40" x2="90" y2="40" stroke="#aaa" strokeWidth="2" />
-            </svg>
-            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>3. Theory of Structures</h2>
-            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Influence Lines & Deflection (Coming Soon).</p>
-          </div>
-
-          {/* Card 4: Disabled */}
-          <div style={{ position: 'relative', backgroundColor: theme.disabledBg, border: `2px solid ${theme.border}`, borderRadius: '12px', padding: '40px 20px', textAlign: 'center', cursor: 'not-allowed' }}>
-             <span style={{ position: 'absolute', top: '15px', right: '15px', fontSize: '0.8rem', fontWeight: 'bold', color: '#888', backgroundColor: '#e0e0e0', padding: '4px 8px', borderRadius: '12px' }}>🔒 Locked</span>
-            <svg width="50" height="40" viewBox="0 0 100 80" style={{ marginBottom: '15px', opacity: 0.5 }}>
-               <rect x="20" y="20" width="60" height="60" fill="none" stroke="#555" strokeWidth="4" />
-               <line x1="20" y1="50" x2="80" y2="50" stroke="#555" strokeWidth="4" />
-            </svg>
-            <h2 style={{ margin: '0 0 15px 0', fontSize: '1.5rem', color: theme.disabledText }}>4. Structural Analysis</h2>
-            <p style={{ margin: 0, color: '#999', fontSize: '0.95rem' }}>Matrix Methods & Advanced Frames (Coming Soon).</p>
-          </div>
-
-        </div>
-
-        {/* Quick Unit Converter Widget */}
-        <div style={{ marginTop: '60px', padding: '25px', border: `1px solid ${theme.border}`, borderRadius: '12px', width: '100%', maxWidth: '900px', backgroundColor: theme.lightGray, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '15px' }}>
-          <div style={{ flex: '1', minWidth: '200px' }}>
-            <h3 style={{ margin: '0 0 5px 0', fontSize: '1.2rem', color: '#000' }}>Quick Unit Converter</h3>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: '#666' }}>Handy tool for engineering calculations.</p>
-          </div>
-          
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-            <select value={convType} onChange={(e) => { setConvType(e.target.value); setFromUnit(e.target.value === 'force' ? 'kN' : 'm'); setToUnit(e.target.value === 'force' ? 'N' : 'cm'); }} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', fontFamily: '"Times New Roman", Times, serif', color: '#000' }}>
-              <option value="force">Force</option>
-              <option value="length">Length</option>
-            </select>
-            
-            <input type="number" value={convVal} onChange={(e) => setConvVal(Number(e.target.value))} style={{ width: '80px', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', color: '#000' }} />
-            
-            <select value={fromUnit} onChange={(e) => setFromUnit(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', fontFamily: '"Times New Roman", Times, serif', color: '#000' }}>
-              {convType === 'force' ? <><option value="N">N</option><option value="kN">kN</option><option value="kgf">kgf</option><option value="Ton">Ton</option></> : <><option value="m">m</option><option value="cm">cm</option><option value="mm">mm</option></>}
-            </select>
-            
-            <span style={{ fontWeight: 'bold', color: '#000' }}>=</span>
-            
-            <div style={{ padding: '8px 12px', backgroundColor: '#fff', border: '1px solid #000', borderRadius: '6px', fontWeight: 'bold', minWidth: '100px', textAlign: 'center', color: '#000' }}>
-              {handleConvert()}
-            </div>
-            
-            <select value={toUnit} onChange={(e) => setToUnit(e.target.value)} style={{ padding: '8px', borderRadius: '6px', border: '1px solid #ccc', fontFamily: '"Times New Roman", Times, serif', color: '#000' }}>
-              {convType === 'force' ? <><option value="N">N</option><option value="kN">kN</option><option value="kgf">kgf</option><option value="Ton">Ton</option></> : <><option value="m">m</option><option value="cm">cm</option><option value="mm">mm</option></>}
-            </select>
-          </div>
-        </div>
-
-        <div style={{ marginTop: '50px', textAlign: 'center', fontSize: '0.85rem', color: '#999', paddingBottom: '20px' }}>
-          CHU CALC v2.0 | Civil Engineering Computation Engine
-        </div>
-
-      </div>
-    )
-  }
-
-  // ==========================================
-  // RENDER STATICS SUITE APP
-  // ==========================================
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
@@ -945,7 +856,7 @@ function App() {
 
       <div style={{ maxWidth: '1250px', margin: '0 auto' }}>
         
-        {/* Top Header Navigation */}
+        {/* Top Header Navigation with Formula Button */}
         <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
           <button onClick={() => setCurrentView('home')} style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #000', backgroundColor: '#fff', color: '#000' }}>
             ◀ Main Menu
@@ -995,20 +906,29 @@ function App() {
                     {(() => {
                         const cx = 500; const cy = 300;
                         const vMax = vectorResult ? Math.max(...vectorLoads.map(v=>v.magnitude), vectorResult.rMag) : Math.max(10, ...vectorLoads.map(v=>v.magnitude));
-                        const scaleFactor = 220 / (vMax || 1); // Max 220px length from center
+                        const scaleFactor = 220 / (vMax || 1); 
 
                         return (
                           <>
                             {/* Input Vectors */}
                             {vectorLoads.map((v, i) => {
                                if (!v.magnitude) return null;
-                               const rad = (v.angle * Math.PI) / 180;
-                               const xEnd = cx + v.magnitude * Math.cos(rad) * scaleFactor;
-                               const yEnd = cy - v.magnitude * Math.sin(rad) * scaleFactor;
+                               const { drawRad, isOut } = getVectorComponents(v);
+                               const xOut = cx + v.magnitude * Math.cos(drawRad) * scaleFactor;
+                               const yOut = cy - v.magnitude * Math.sin(drawRad) * scaleFactor;
+                               
+                               // Calculate text position
+                               const textOffX = xOut > cx ? 10 : -35;
+                               const textOffY = yOut > cy ? 20 : -10;
+
                                return (
                                  <g key={v.id}>
-                                   <line x1={cx} y1={cy} x2={xEnd} y2={yEnd} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                                   <text x={xEnd + (xEnd > cx ? 10 : -35)} y={yEnd + (yEnd > cy ? 20 : -10)} fill={theme.accent} fontSize="14" fontWeight="bold">F{i+1}</text>
+                                   {isOut ? (
+                                      <line x1={cx} y1={cy} x2={xOut} y2={yOut} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                                   ) : (
+                                      <line x1={xOut} y1={yOut} x2={cx} y2={cy} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                                   )}
+                                   <text x={xOut + textOffX} y={yOut + textOffY} fill={theme.accent} fontSize="14" fontWeight="bold">F{i+1}</text>
                                  </g>
                                )
                             })}
@@ -1046,12 +966,32 @@ function App() {
                   </div>
                   
                   {vectorLoads.map((v, index) => (
-                     <div key={v.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px', paddingBottom: '10px', borderBottom: `1px dashed ${theme.border}` }}>
+                     <div key={v.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px', paddingBottom: '10px', borderBottom: `1px dashed ${theme.border}`, flexWrap: 'wrap' }}>
                         <span style={{ fontWeight: 'bold', width: '30px' }}>F{index + 1}:</span>
+                        
                         <label>Mag:</label>
-                        <input type="number" value={v.magnitude} onChange={(e) => updateVectorLoad(v.id, 'magnitude', e.target.value)} style={{ width: '80px', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }} />
-                        <label>Angle (deg):</label>
-                        <input type="number" value={v.angle} onChange={(e) => updateVectorLoad(v.id, 'angle', e.target.value)} style={{ width: '80px', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }} title="Angle from positive X-axis (CCW)" />
+                        <input type="number" value={v.magnitude} onChange={(e) => updateVectorLoad(v.id, 'magnitude', e.target.value)} style={{ width: '70px', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }} />
+                        
+                        <label>Angle:</label>
+                        <input type="number" value={v.angle} onChange={(e) => updateVectorLoad(v.id, 'angle', e.target.value)} style={{ width: '60px', padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }} title="Angle in degrees (0-90)" />
+                        
+                        <select value={v.quadrant} onChange={(e) => updateVectorLoad(v.id, 'quadrant', parseInt(e.target.value))} style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                           <option value={1}>Q1 (บนขวา)</option>
+                           <option value={2}>Q2 (บนซ้าย)</option>
+                           <option value={3}>Q3 (ล่างซ้าย)</option>
+                           <option value={4}>Q4 (ล่างขวา)</option>
+                        </select>
+
+                        <select value={v.refAxis} onChange={(e) => updateVectorLoad(v.id, 'refAxis', e.target.value)} style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                           <option value="x">เทียบแกน X</option>
+                           <option value="y">เทียบแกน Y</option>
+                        </select>
+
+                        <select value={v.direction} onChange={(e) => updateVectorLoad(v.id, 'direction', e.target.value)} style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                           <option value="out">พุ่งออก (Out)</option>
+                           <option value="in">พุ่งเข้า (In)</option>
+                        </select>
+
                         <button onClick={() => removeVectorLoad(v.id)} style={{ backgroundColor: '#fff', color: '#000', border: '1px solid #000', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
                      </div>
                   ))}
@@ -1092,15 +1032,9 @@ function App() {
                      </table>
                   </div>
 
-                  <div style={{ display: 'flex', gap: '30px', flexWrap: 'wrap' }}>
-                     <div style={{ padding: '15px', border: `2px solid ${theme.supportOrange}`, borderRadius: '8px', backgroundColor: '#fffdf5' }}>
-                        <span style={{ display: 'block', fontSize: '0.9rem', color: '#666', marginBottom: '5px' }}>Resultant Magnitude (R):</span>
-                        <strong style={{ fontSize: '1.5rem', color: theme.supportOrange }}>{vectorResult.rMag.toFixed(2)}</strong>
-                     </div>
-                     <div style={{ padding: '15px', border: `2px solid ${theme.supportOrange}`, borderRadius: '8px', backgroundColor: '#fffdf5' }}>
-                        <span style={{ display: 'block', fontSize: '0.9rem', color: '#666', marginBottom: '5px' }}>Resultant Angle (θ):</span>
-                        <strong style={{ fontSize: '1.5rem', color: theme.supportOrange }}>{vectorResult.rAng.toFixed(2)}°</strong>
-                     </div>
+                  <div className="no-print" style={{ display: 'flex', gap: '30px', justifyContent: 'flex-start', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
+                     <span><strong>|R| (Resultant):</strong> {vectorResult.rMag.toFixed(2)} {forceUnit}</span>
+                     <span><strong>θ (Angle):</strong> {vectorResult.rAng.toFixed(2)}°</span>
                   </div>
                </div>
             )}
@@ -1230,7 +1164,7 @@ function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 
                 {/* Max Absolute Values (Plain text format) */}
-                <div className="no-print" style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '0.95rem' }}>
+                <div className="no-print" style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#000', fontSize: '1.1rem' }}>
                    <span><strong>|V| max:</strong> {maxAbsoluteShear.toFixed(2)} {forceUnit}</span>
                    <span><strong>|M| max:</strong> {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m</span>
                 </div>
