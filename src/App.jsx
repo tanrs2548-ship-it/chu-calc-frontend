@@ -27,7 +27,6 @@ function App() {
   // ==========================================
   // GLOBAL STATES
   // ==========================================
-  // เปลี่ยนเป็นหน้า home เริ่มต้น เพื่อให้เลือกวิชา
   const [currentView, setCurrentView] = useState('home') 
   const [activeTab, setActiveTab] = useState('vectors')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -38,6 +37,13 @@ function App() {
   const [convType, setConvType] = useState('force')
   const [fromUnit, setFromUnit] = useState('kN')
   const [toUnit, setToUnit] = useState('N')
+
+  // Recent Projects State (ไอเดียข้อ 3: จำลองโครงสร้างล่าสุด)
+  const [recentProjects, setRecentProjects] = useState([
+    { id: 1, name: 'Simply Supported Beam (UDL + Point)', type: 'beam', date: 'Today' },
+    { id: 2, name: 'Pratt Truss Analysis', type: 'truss', date: 'Yesterday' },
+    { id: 3, name: 'Portal Frame Reactions', type: 'frame', date: '3 days ago' }
+  ])
 
   // Dark Theme Palette
   const theme = {
@@ -817,16 +823,23 @@ function App() {
 
       {/* ======================= HOME VIEW: 4 SUBJECTS ======================= */}
       {currentView === 'home' ? (
-        <div style={{ width: '100%', maxWidth: '1200px', margin: '40px auto', textAlign: 'center' }}>
+        <div style={{ width: '100%', maxWidth: '1300px', margin: '40px auto', textAlign: 'center', padding: '0 20px', boxSizing: 'border-box' }}>
+          
+          {/* Badge / Status Banner (ไอเดียข้อ 1) */}
+          <div style={{ display: 'inline-block', backgroundColor: 'rgba(0, 191, 255, 0.1)', color: '#00BFFF', padding: '6px 16px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', border: '1px solid rgba(0, 191, 255, 0.3)', marginBottom: '20px', letterSpacing: '1px' }}>
+            ⚡ Interactive Structural Platform for Engineering Students
+          </div>
+
           <h1 style={{ fontSize: '3rem', color: '#fff', marginBottom: '10px', letterSpacing: '1px' }}>CHU CALC</h1>
           <p style={{ fontSize: '1.2rem', color: '#aaa', marginBottom: '40px' }}>Select an Engineering Subject to Start Analysis</p>
           
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', padding: '0 20px' }}>
+          {/* 4 วิชาหลัก */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginBottom: '50px' }}>
             
             {/* 1. Engineering Statics (เปิดใช้งานจริง) */}
             <div 
               onClick={() => setCurrentView('statics')}
-              style={{ backgroundColor: '#1E1E1E', border: '1px solid #333', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', transition: '0.3s', boxShadow: '0 4px 15px rgba(0,0,0,0.2)' }}
+              style={{ backgroundColor: '#1E1E1E', border: '1px solid #333', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', transition: '0.3s', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', textAlign: 'left' }}
               onMouseEnter={(e) => e.currentTarget.style.borderColor = '#00BFFF'}
               onMouseLeave={(e) => e.currentTarget.style.borderColor = '#333'}
             >
@@ -834,10 +847,10 @@ function App() {
               <p style={{ color: '#aaa', fontSize: '0.95rem' }}>Force vectors, beams, trusses, and frame reaction analysis.</p>
             </div>
 
-            {/* 2. Mechanic of Materials (ปิดไว้ก่อนหรือสร้างลิงก์รองรับอนาคต) */}
+            {/* 2. Mechanic of Materials */}
             <div 
               onClick={() => alert("Mechanic of Materials module is coming soon!")}
-              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7 }}
+              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
             >
               <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>2. Mechanic of Materials</h3>
               <p style={{ color: '#666', fontSize: '0.95rem' }}>Stress, strain, bending, and torsional deformation analysis.</p>
@@ -846,7 +859,7 @@ function App() {
             {/* 3. Theory of Structures */}
             <div 
               onClick={() => alert("Theory of Structures module is coming soon!")}
-              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7 }}
+              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
             >
               <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>3. Theory of Structures</h3>
               <p style={{ color: '#666', fontSize: '0.95rem' }}>Indeterminate structures, influence lines, and energy methods.</p>
@@ -855,13 +868,38 @@ function App() {
             {/* 4. Structural Analysis */}
             <div 
               onClick={() => alert("Structural Analysis module is coming soon!")}
-              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7 }}
+              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
             >
               <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>4. Structural Analysis</h3>
               <p style={{ color: '#666', fontSize: '0.95rem' }}>Matrix methods, stiffness method, and finite element models.</p>
             </div>
 
           </div>
+
+          {/* ส่วนแสดงประวัติหรือโครงสร้างล่าสุด (ไอเดียข้อ 3: Recent Projects / Quick Load) */}
+          <div style={{ backgroundColor: '#181818', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '25px', textAlign: 'left' }}>
+            <h3 style={{ color: '#fff', fontSize: '1.2rem', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              🕒 Recent Analysis Sessions
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {recentProjects.map(proj => (
+                <div 
+                  key={proj.id}
+                  onClick={() => { setCurrentView('statics'); setActiveTab(proj.type); }}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', backgroundColor: '#1E1E1E', borderRadius: '8px', border: '1px solid #333', cursor: 'pointer', transition: '0.2s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#252525'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1E1E1E'}
+                >
+                  <span style={{ color: '#E0E0E0', fontWeight: 'bold' }}>{proj.name}</span>
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.85rem', color: '#888', textTransform: 'uppercase' }}>[{proj.type}]</span>
+                    <span style={{ fontSize: '0.85rem', color: '#00BFFF' }}>{proj.date} ➔</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
       ) : (
         /* ======================= STATICS VIEW: THE CALCULATOR ======================= */
