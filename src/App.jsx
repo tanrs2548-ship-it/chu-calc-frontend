@@ -11,10 +11,6 @@ const formatYAxis = (tickItem) => {
   return tickItem >= 10000 || tickItem <= -10000 ? (tickItem / 1000).toFixed(1) + 'k' : tickItem.toLocaleString();
 };
 
-const handlePrintPDF = () => { 
-  window.print(); 
-};
-
 const getMaxMinObj = (data, key) => {
   if (!data || data.length === 0) return { max: null, min: null };
   let max = data[0], min = data[0];
@@ -816,57 +812,12 @@ function App() {
         .app-bg { background-color: ${theme.bg}; min-height: 100vh; padding: 20px 25px; width: 100%; box-sizing: border-box; }
         .report-document { width: 100% !important; max-width: none !important; margin: 0 0 40px 0 !important; background: ${theme.cardBg}; padding: 40px; box-sizing: border-box; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid #333; }
         select, input { background-color: #2A2A2A !important; color: #E0E0E0 !important; border: 1px solid #444 !important; }
-        
-        @media print {
-          @page { size: A4 portrait; margin: 10mm; }
-          body, html { background: #ffffff !important; color: #000000 !important; padding: 0 !important; margin: 0 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-          .app-bg { background-color: #ffffff !important; padding: 0 !important; min-height: auto !important; width: 100% !important; }
-          
-          /* ซ่อนปุ่ม เมนู และส่วนควบคุมทั้งหมดตอนพิมพ์ */
-          .no-print, button, select, input { display: none !important; }
-          
-          /* ขยายรายงานให้เต็มหน้ากระดาษและปรับพื้นหลังเป็นขาว */
-          .report-document { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 !important; background: #ffffff !important; color: #000000 !important; box-shadow: none !important; border: none !important; }
-          
-          /* บังคับสีพื้นหลังของกล่องการ์ดทั้งหมดให้เป็นสีขาวสะอาดตา */
-          .report-document, div[style*="backgroundColor: '#1A1A1A'"], div[style*="backgroundColor: '#151515'"] {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-            border: 1px solid #dddddd !important;
-          }
-
-          /* บังคับให้ข้อความ หัวข้อ และป้ายกำกับทั้งหมดเปลี่ยนเป็นสีดำ */
-          h1, h2, h3, h4, span, strong, label, p {
-            color: #000000 !important;
-          }
-
-          /* แปลงสีพื้นหลัง SVG และ Grid ให้ออกมาเป็นสีขาว */
-          svg { background-color: #ffffff !important; }
-          svg text { fill: #000000 !important; }
-          svg rect[fill="#151515"], svg rect[fill="#1A1A1A"], svg rect[fill="url(#gridT)"], svg rect[fill="url(#gridT_FBD)"], svg rect[fill="url(#gridF)"], svg rect[fill="url(#gridF_FBD)"] { fill: #ffffff !important; }
-          svg path[stroke="#2a2a2a"], svg line[stroke="#2a2a2a"], svg path[stroke="#e0e0e0"] { stroke: #cccccc !important; }
-
-          /* บังคับให้กราฟ Recharts (SFD, BMD) และข้อความตัวเลขในกราฟแสดงผลชัดเจน */
-          .recharts-cartesian-grid-horizontal line, .recharts-cartesian-grid-vertical line { stroke: #e0e0e0 !important; }
-          .recharts-text, .recharts-cartesian-axis-tick-value { fill: #000000 !important; }
-          .recharts-surface { background-color: #ffffff !important; }
-          
-          /* บังคับสีพื้นที่ใต้กราฟ SFD และ BMD ให้พิมพ์ออกมาเป็นสีเทาอ่อนหรือทึบตามที่กำหนด */
-          .recharts-area-area { fill: #cccccc !important; fill-opacity: 0.5 !important; }
-
-          /* ปรับแต่งตารางสรุปผลให้เป็นธีมขาวดำทางการ */
-          table { width: 100% !important; border-collapse: collapse !important; color: #000000 !important; }
-          th, td { border: 1px solid #cccccc !important; color: #000000 !important; padding: 6px !important; }
-          th { background-color: #f2f2f2 !important; }
-          
-          .avoid-break { page-break-inside: avoid !important; break-inside: avoid !important; margin-bottom: 15px !important; }
-        }
       `}</style>
 
       <div style={{ width: '100%', margin: '0 auto' }}>
         
         {/* Top Header Navigation with Formula Button */}
-        <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', width: '100%' }}>
           <button 
             onClick={() => { setCurrentView('home'); window.scrollTo(0,0); }} 
             style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #444', backgroundColor: '#1E1E1E', color: '#fff', position: 'relative', zIndex: 10 }}>
@@ -883,7 +834,7 @@ function App() {
         </div>
 
         {/* Structure Selector Tabs */}
-        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 10, width: '100%' }}>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 10, width: '100%' }}>
           <button onClick={() => setActiveTab('vectors')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'vectors' ? '#333' : '#1E1E1E', color: '#fff' }}>Force Vectors</button>
           <button onClick={() => setActiveTab('beam')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'beam' ? '#333' : '#1E1E1E', color: '#fff' }}>Simple Beam</button>
           <button onClick={() => setActiveTab('truss')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'truss' ? '#333' : '#1E1E1E', color: '#fff' }}>Truss Builder</button>
@@ -898,13 +849,12 @@ function App() {
                 <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>2D Force System Analysis</h1>
                 <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: Vector Addition & Equilibrium</p>
               </div>
-              <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: '#333', color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: '1px solid #555', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                  <h3 style={{ margin: '0', color: theme.textMain, fontSize: '1.1rem' }}>1. Force Vectors Visualization</h3>
-                 <div className="no-print" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                 <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                    <label style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Unit:</label>
                    <select value={vectorUnit} onChange={(e) => setVectorUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
                      <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
@@ -978,7 +928,7 @@ function App() {
                </div>
             </div>
 
-            <div className="no-print" style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
                <div style={{ flex: '1', backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                     <h4 style={{ margin: 0, fontSize: '1.1rem' }}>Force Inputs</h4>
@@ -1018,7 +968,7 @@ function App() {
                </div>
             </div>
 
-            <div className="no-print" style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
               <button onClick={analyzeVectors} disabled={vectorLoads.length === 0} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: vectorLoads.length === 0 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: vectorLoads.length === 0 ? 'not-allowed' : 'pointer' }}>Resolve Force Vectors</button>
             </div>
 
@@ -1069,11 +1019,10 @@ function App() {
                 <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Beam Analysis Report</h1>
                 <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: CHU-CALC Static Evaluation</p>
               </div>
-              <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: '#333', color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: '1px solid #555', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
             {/* Presets Bar */}
-            <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
               <button onClick={() => loadBeamPreset('simply-supported')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Simply Supported (Point Load)</button>
               <button onClick={() => loadBeamPreset('overhanging')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Overhanging Beam (UDL + Point)</button>
@@ -1083,7 +1032,7 @@ function App() {
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                 <h3 style={{ margin: 0, color: theme.textMain, fontSize: '1.1rem' }}>1. Structural Beam Model & Loading</h3>
-                <div className="no-print" style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
                   <label style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Unit:</label>
                   <select value={forceUnit} onChange={(e) => setForceUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
                     <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
@@ -1239,7 +1188,7 @@ function App() {
               </div>
             )}
 
-            <div className="no-print" style={{ display: 'flex', gap: '15px', marginTop: '20px', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: '15px', marginTop: '20px', flexWrap: 'wrap' }}>
               <div style={{ flex: '1.3', backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <h4 style={{ margin: 0, fontSize: '1rem' }}>Beam Length & Supports</h4>
@@ -1322,18 +1271,17 @@ function App() {
                 <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Truss Analysis Report</h1>
                 <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: CHU-CALC Advanced Framework Evaluation</p>
               </div>
-              <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: '#333', color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: '1px solid #555', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
             {/* Truss Presets */}
-            <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
               <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Pratt Truss</button>
               <button onClick={() => loadTrussPreset('warren')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Warren Truss</button>
             </div>
 
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A' }}>
-              <div className="no-print" style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px' }}>Undo</button>
                   <button onClick={clearTrussCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
@@ -1488,7 +1436,7 @@ function App() {
               </div>
             )}
 
-            <div className="no-print" style={{ display: 'flex', gap: '15px', marginBottom: '20px', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', alignItems: 'center' }}>
               <div style={{ flex: 1, backgroundColor: '#1A1A1A', padding: '12px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
                 {nodes.find(n => n.id === selectedNodeId) ? (
                   <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
@@ -1542,17 +1490,16 @@ function App() {
                 <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Frame Analysis: Engineering Statics</h1>
                 <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: Equilibrium & Reactions Evaluation</p>
               </div>
-              <button onClick={handlePrintPDF} className="no-print" style={{ backgroundColor: '#333', color: 'white', padding: '10px 20px', borderRadius: '6px', cursor: 'pointer', border: '1px solid #555', fontWeight: 'bold' }}>🖨️ Print A4 Report</button>
             </div>
 
             {/* Frame Presets */}
-            <div className="no-print" style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
               <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
               <button onClick={() => loadFramePreset('portal')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Portal Frame (UDL on Beam)</button>
             </div>
 
             <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A' }}>
-              <div className="no-print" style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                 <div style={{ display: 'flex', gap: '8px' }}>
                   <button onClick={handleUndoFrame} disabled={frameHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: frameHistory.length===0?'not-allowed':'pointer', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px' }}>Undo</button>
                   <button onClick={clearFrameCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
@@ -1788,7 +1735,7 @@ function App() {
               </div>
             )}
 
-            <div className="no-print" style={{ backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
+            <div style={{ backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
               {fSelectedNode ? (
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <strong style={{ color: '#fff' }}>Node {fSelectedNode.name}:</strong>
@@ -1861,7 +1808,7 @@ function App() {
               )}
             </div>
 
-            <div className="no-print" style={{ textAlign: 'center', marginBottom: '20px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
               <button onClick={runFrameStaticsAnalysis} disabled={fNodes.length < 2} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: fNodes.length < 2 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: fNodes.length < 2 ? 'not-allowed' : 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' }}>Calculate Frame Reactions</button>
             </div>
 
