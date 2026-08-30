@@ -40,54 +40,124 @@ function App() {
 
   // Recent Projects State
   const [recentProjects, setRecentProjects] = useState([
-    { id: 1, name: 'Particle Equilibrium (Space Telescope)', type: 'particle', date: 'Today' },
+    { id: 1, name: 'Particle Equilibrium (Canvas Builder)', type: 'particle', date: 'Today' },
     { id: 2, name: 'Simply Supported Beam (UDL + Point)', type: 'beam', date: 'Yesterday' },
     { id: 3, name: 'Pratt Truss Analysis', type: 'truss', date: '3 days ago' }
   ])
 
   // ==========================================
-  // PARTICLE SIMPLIFIED WORKBENCH STATES (Chapter 3)
+  // PARTICLE CANVAS BUILDER STATES (Chapter 3)
   // ==========================================
-  const [pWeight, setPWeight] = useState(150) // น้ำหนักของกล้องโทรทรรศน์อวกาศ
-  const [pAngle1, setPAngle1] = useState(30)  // มุมเชือกขวาเทียบแกน X (องศา)
-  const [pAngle2, setPAngle2] = useState(45)  // มุมเชือกซ้ายเทียบแกน X (องศา)
+  const [pNodes, setPNodes] = useState([]) // จุดต่อ (Nodes)
+  const [pCables, setPCables] = useState([]) // เส้นเชือกหรือสปริงเชื่อมระหว่าง Node
+  const [selectedPNodeId, setSelectedPNodeId] = useState(null)
   const [particleUnit, setParticleUnit] = useState('N')
-  const [particleResult, setParticleResult] = useState(null)
+  const [pSupports, setPSupports] = useState({}) // จุดตรึง (Fixed/Supports)
+  const [pLoads, setPLoads] = useState({}) // แรงภายนอก / น้ำหนักที่กระทำต่อ Node (fx, fy)
+  const [particleAnalysisResult, setParticleAnalysisResult] = useState(null)
+  const [particleHistory, setParticleHistory] = useState([])
 
-  const analyzeSimpleParticle = () => {
-    setIsAnalyzing(true)
+  const saveParticleState = () => {
+    setParticleHistory(prev => [...prev, { nodes: [...pNodes], cables: [...pCables], supports: {...pSupports}, loads: {...pLoads} }])
+  }
+
+  const handleUndoParticle = () => {
+    if (particleHistory.length > 0) {
+      const lastState = particleHistory[particleHistory.length - 1]
+      setPNodes(lastState.nodes)
+      setPCables(lastState.cables)
+      setPSupports(lastState.supports)
+      setPLoads(lastState.loads)
+      setSelectedPNodeId(null)
+      setParticleHistory(particleHistory.slice(0, -1))
+    }
+  }
+
+  const handleParticleCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const clickedExisting = pNodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
+    
+    if (clickedExisting) {
+      if (selectedPNodeId && selectedPNodeId !== clickedExisting.id) {
+        const isDup = pCables.some(c => (c.n1 === selectedPNodeId && c.n2 === clickedExisting.id) || (c.n1 === clickedExisting.id && c.n2 === selectedPNodeId));
+        if (!isDup) {
+          saveParticleState();
+          setPCables([...pCables, { id: Date.now(), n1: selectedPNodeId, n2: clickedExisting.id }]);
+        }
+      }
+      setSelectedPNodeId(clickedExisting.id);
+      return;
+    }
+
+    const existing = pNodes.find(n => n.x === x && n.y === y);
+    if (!existing) {
+      saveParticleState();
+      const newNodeId = Date.now();
+      const nodeName = pNodes.length < 26 ? String.fromCharCode(65 + pNodes.length) : `N${pNodes.length}`;
+      setPNodes([...pNodes, { id: newNodeId, name: nodeName, x, y }]);
+      if (selectedPNodeId) {
+        setPCables([...pCables, { id: Date.now() + 1, n1: selectedPNodeId, n2: newNodeId }]);
+      }
+      setSelectedPNodeId(newNodeId);
+    } else {
+      setSelectedPNodeId(null);
+    }
+  }
+
+  const handlePSupportChange = (nodeId, isPinned) => {
+    saveParticleState();
+    setPSupports(prev => {
+      const ns = { ...prev };
+      if (!isPinned) delete ns[nodeId];
+      else ns[nodeId] = { type: 'fixed' };
+      return ns;
+    });
+  }
+
+  const handlePLoadChange = (nodeId, axis, value) => {
+    saveParticleState();
+    setPLoads(prev => {
+      const nl = { ...prev };
+      if (value === '') {
+        if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; }
+      } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; }
+      return nl;
+    });
+  }
+
+  const clearParticleCanvas = () => {
+    saveParticleState();
+    setPNodes([]); setPCables([]); setPSupports({}); setPLoads({}); setSelectedPNodeId(null); setParticleAnalysisResult(null);
+  }
+
+  const runParticleEquilibrium = () => {
+    setIsAnalyzing(true);
     setTimeout(() => {
-      const w = Number(pWeight) || 0
-      const th1 = (Number(pAngle1) || 0) * Math.PI / 180
-      const th2 = (Number(pAngle2) || 0) * Math.PI / 180
+      // จำลองการคำนวณสมดุลอนุภาคเบื้องต้นจากแรงที่กระทำบน Node ที่เลือก
+      let sumFx = 0;
+      let sumFy = 0;
+      const steps = [];
 
-      // สมดุลแรง 2 มิติ:
-      // T1 cos(th1) - T2 cos(th2) = 0
-      // T1 sin(th1) + T2 sin(th2) - W = 0
-      const denom = Math.sin(th1) * Math.cos(th2) + Math.cos(th1) * Math.sin(th2)
-      let t1 = 0, t2 = 0
-      if (Math.abs(denom) > 0.0001) {
-        t1 = (w * Math.cos(th2)) / Math.sin(th1 + th2) // T1 (ซ้าย)
-        t2 = (w * Math.cos(th1)) / Math.sin(th1 + th2) // T2 (ขวา)
+      steps.push("=== CHAPTER 3: EQUILIBRIUM OF A PARTICLE ===");
+      Object.entries(pLoads).forEach(([nId, f]) => {
+        sumFx += Number(f.fx || 0);
+        sumFy += Number(f.fy || 0);
+      });
+
+      steps.push(`[Step 1] สมดุลแรงตามแนวแกน X (∑Fx = 0): แรงรวม = ${sumFx.toFixed(2)} ${particleUnit}`);
+      steps.push(`[Step 2] สมดุลแรงตามแนวแกน Y (∑Fy = 0): แรงรวม = ${sumFy.toFixed(2)} ${particleUnit}`);
+      
+      if (Math.abs(sumFx) < 0.01 && Math.abs(sumFy) < 0.01) {
+        steps.push(`[Status] อนุภาคอยู่ในสภาวะสมดุลสมบูรณ์ (Particle is in Equilibrium)`);
       } else {
-        t1 = w / 2; t2 = w / 2;
+        steps.push(`[Status] อนุภาคไม่อยู่ในสมดุล มีแรงลัพธ์เหลืออยู่ (Resultant Force != 0)`);
       }
 
-      setParticleResult({
-        T1: t1,
-        T2: t2,
-        W: w,
-        angle1: pAngle1,
-        angle2: pAngle2,
-        steps: [
-          `[Step 1] กำหนดค่าน้ำหนักกล้องโทรทรรศน์อวกาศ W = ${w} ${particleUnit}`,
-          `[Step 2] ตั้งสมการสมดุลตามแนวแกน X (∑Fx = 0): \n➔ T₂ cos(${pAngle2}°) - T₁ cos(${pAngle1}°) = 0`,
-          `[Step 3] ตั้งสมการสมดุลตามแนวแกน Y (∑Fy = 0): \n➔ T₁ sin(${pAngle1}°) + T₂ sin(${pAngle2}°) - ${w} = 0`,
-          `[Step 4] ผลลัพธ์แรงตึงในสายเคเบิล: \n➔ แรงตึงเชือกด้านซ้าย (T₁) = ${t1.toFixed(2)} ${particleUnit} \n➔ แรงตึงเชือกด้านขวา (T₂) = ${t2.toFixed(2)} ${particleUnit}`
-        ]
-      })
-      setIsAnalyzing(false)
-    }, 600)
+      setParticleAnalysisResult({ steps, sumFx, sumFy });
+      setIsAnalyzing(false);
+    }, 800);
   }
 
   // Dark Theme Palette
@@ -106,7 +176,657 @@ function App() {
     disabledText: '#666666'
   }
 
-  const inputStyle = { width: '90px', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}`, marginLeft: '10px', fontFamily: '"Times New Roman", Times, serif', backgroundColor: '#2A2A2A', color: theme.textMain }
+  // ==========================================
+  // SVG RENDER COMPONENTS
+  // ==========================================
+  const RenderSupportSVG = ({ cx, cy, type, dir }) => {
+    const isV = dir === 'vertical';
+    const color = theme.supportOrange;
+    if (type === 'pin' || type === 'fixed') {
+      return <g><polygon points={`${cx},${cy} ${cx-10},${cy+15} ${cx+10},${cy+15}`} fill={color} /><line x1={cx-15} y1={cy+15} x2={cx+15} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>;
+    }
+    return null;
+  }
+
+  const renderDimensions = (nodeList, scale) => {
+    if (!nodeList || nodeList.length < 2) return null;
+    const dimMaxX = Math.max(...nodeList.map(n => n.x)); const dimMaxY = Math.max(...nodeList.map(n => n.y));
+    const uniqueX = [...new Set(nodeList.map(n => n.x))].sort((a, b) => a - b); const uniqueY = [...new Set(nodeList.map(n => n.y))].sort((a, b) => a - b);
+    const botY = dimMaxY + 45; const rightX = dimMaxX + 45; 
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {uniqueX.map((x, i) => {
+          if (i === uniqueX.length - 1) return null; const nextX = uniqueX[i+1]; const dist = ((nextX - x) / PIXELS_PER_GRID) * scale;
+          if (dist === 0) return null;
+          return (
+            <g key={`hx-${i}`}>
+              <line x1={x} y1={botY} x2={nextX} y2={botY} stroke={theme.textMain} strokeWidth="1.5" />
+              <line x1={x} y1={botY - 8} x2={x} y2={botY + 8} stroke={theme.textMain} strokeWidth="1.5" />
+              <line x1={nextX} y1={botY - 8} x2={nextX} y2={botY + 8} stroke={theme.textMain} strokeWidth="1.5" />
+              <text x={(x + nextX) / 2} y={botY + 20} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">{dist.toFixed(1)} m</text>
+            </g>
+          )
+        })}
+      </g>
+    );
+  };
+
+  const renderDistributedLoadArrows = (x1, y1, x2, y2, wx, wy) => {
+    const elements = [];
+    if ((!wy || wy === 0) && (!wx || wx === 0)) return null;
+    const length = Math.sqrt((x2 - x1)**2 + (y2 - y1)**2);
+    if (length === 0) return null;
+    const numArrows = Math.max(Math.floor(length / 25), 3);
+    const cx = (x1 + x2) / 2; const cy = (y1 + y2) / 2;
+    const unit = activeTab === 'frame' ? fForceUnit : forceUnit;
+    const markerId = "url(#arrowUDL_Orange)";
+
+    if (wy && wy !== 0) {
+      const arrows = []; const dirY = wy > 0 ? 1 : -1;
+      for (let i = 0; i <= numArrows; i++) {
+        const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
+        const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
+        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
+      }
+      elements.push(
+        <g key="wy-group">
+          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
+          {arrows}
+          <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
+        </g>
+      );
+    }
+    return <g style={{ pointerEvents: 'none' }}>{elements}</g>;
+  };
+
+  const handleConvert = () => {
+    let multiplier = 1;
+    if (convType === 'force') {
+      const rates = { 'N': 1, 'kN': 1000, 'kgf': 9.80665, 'Ton': 9806.65 };
+      multiplier = rates[fromUnit] / rates[toUnit];
+    } else {
+      const rates = { 'm': 1, 'cm': 0.01, 'mm': 0.001 };
+      multiplier = rates[fromUnit] / rates[toUnit];
+    }
+    return (convVal * multiplier).toFixed(4);
+  }
+
+  // ==========================================
+  // 0. FORCE VECTORS STATES
+  // ==========================================
+  const [vectorUnit, setVectorUnit] = useState('kN');
+  const [vectorLoads, setVectorLoads] = useState([
+    { id: 1, magnitude: 100, angle: 60, quadrant: 3, refAxis: 'x', direction: 'out' },
+    { id: 2, magnitude: 50, angle: 20, quadrant: 1, refAxis: 'x', direction: 'out' }
+  ]);
+  const [vectorResult, setVectorResult] = useState(null);
+
+  const addVectorLoad = () => setVectorLoads([...vectorLoads, { id: Date.now(), magnitude: 50, angle: 0, quadrant: 1, refAxis: 'x', direction: 'out' }]);
+  const updateVectorLoad = (id, field, val) => setVectorLoads(vectorLoads.map(v => v.id === id ? { ...v, [field]: val } : v));
+  const removeVectorLoad = (id) => setVectorLoads(vectorLoads.filter(v => v.id !== id));
+
+  const getVectorComponents = (v) => {
+    let baseAngle = Number(v.angle) || 0;
+    let trueAngle = 0;
+    
+    if (v.quadrant === 1) trueAngle = v.refAxis === 'x' ? baseAngle : 90 - baseAngle;
+    else if (v.quadrant === 2) trueAngle = v.refAxis === 'x' ? 180 - baseAngle : 90 + baseAngle;
+    else if (v.quadrant === 3) trueAngle = v.refAxis === 'x' ? 180 + baseAngle : 270 - baseAngle;
+    else if (v.quadrant === 4) trueAngle = v.refAxis === 'x' ? 360 - baseAngle : 270 + baseAngle;
+
+    const drawRad = (trueAngle * Math.PI) / 180;
+    let forceAngle = trueAngle;
+    if (v.direction === 'in') forceAngle = (trueAngle + 180) % 360;
+    
+    const forceRad = (forceAngle * Math.PI) / 180;
+    const fx = v.magnitude * Math.cos(forceRad);
+    const fy = v.magnitude * Math.sin(forceRad);
+    
+    return { fx, fy, drawRad, isOut: v.direction === 'out' };
+  };
+
+  const analyzeVectors = () => {
+    setIsAnalyzing(true);
+    setTimeout(() => {
+      let sumFx = 0;
+      let sumFy = 0;
+      const steps = [];
+
+      vectorLoads.forEach((f, i) => {
+        const { fx, fy, drawRad, isOut } = getVectorComponents(f);
+        sumFx += fx;
+        sumFy += fy;
+        steps.push({ id: f.id, name: `F${i + 1}`, fx: fx, fy: fy, drawRad: drawRad, isOut: isOut, magnitude: f.magnitude });
+      });
+
+      const rMag = Math.sqrt(sumFx ** 2 + sumFy ** 2);
+      let rAng = (Math.atan2(sumFy, sumFx) * 180) / Math.PI;
+      if (rAng < 0) rAng += 360;
+
+      const refAng = (Math.atan(Math.abs(sumFy) / (Math.abs(sumFx) || 0.0001)) * 180 / Math.PI);
+      let dirSymbol = '';
+      if (sumFx >= 0 && sumFy >= 0) dirSymbol = '↗ (Q1)';
+      else if (sumFx < 0 && sumFy >= 0) dirSymbol = '↖ (Q2)';
+      else if (sumFx < 0 && sumFy < 0) dirSymbol = '↙ (Q3)';
+      else dirSymbol = '↘ (Q4)';
+
+      setVectorResult({ sumFx, sumFy, rMag, rAng, refAng, dirSymbol, steps });
+      setIsAnalyzing(false);
+    }, 600);
+  };
+
+  // ==========================================
+  // 1. BEAM ANALYSIS STATES
+  // ==========================================
+  const [beamLength, setBeamLength] = useState(4)
+  const [forceUnit, setForceUnit] = useState('kN') 
+  const [beamSupports, setBeamSupports] = useState([
+    { id: 1, type: "pin", x: 0, direction: "horizontal" },
+    { id: 2, type: "roller", x: 4, direction: "horizontal" }
+  ])
+  const [beamLoads, setBeamLoads] = useState([
+    { id: 1, type: "point", magnitude: 2, x: 1 },
+    { id: 2, type: "distributed", magnitude: 2, start_x: 2, end_x: 4 }
+  ])
+  const [chartData, setChartData] = useState([])
+  const [beamReactions, setBeamReactions] = useState([])
+  const [beamSteps, setBeamSteps] = useState([])
+  const [beamHistory, setBeamHistory] = useState([])
+
+  const safeBeamLength = Number(beamLength) || 1; 
+  const getSvgX = (x) => 50 + (Number(x || 0) / safeBeamLength) * 900; 
+  const optimizedTicks = safeBeamLength > 10 
+    ? Array.from({ length: Math.floor(safeBeamLength / 2) + 1 }, (_, i) => i * 2) 
+    : Array.from({ length: Math.floor(safeBeamLength) + 1 }, (_, i) => i);
+
+  const sortedBeamSupports = [...beamSupports].sort((a, b) => a.x - b.x);
+  const getBeamNodeLabel = (id) => String.fromCharCode(65 + sortedBeamSupports.findIndex(s => s.id === id));
+
+  const saveBeamState = () => setBeamHistory(prev => [...prev, { supports: [...beamSupports], loads: [...beamLoads] }])
+  const handleUndoBeam = () => {
+    if (beamHistory.length > 0) {
+      const lastState = beamHistory[beamHistory.length - 1]
+      setBeamSupports(lastState.supports)
+      setBeamLoads(lastState.loads)
+      setBeamHistory(beamHistory.slice(0, -1))
+    }
+  }
+
+  const addBeamSupport = () => { saveBeamState(); setBeamSupports([...beamSupports, { id: Date.now(), type: "roller", x: safeBeamLength / 2, direction: "horizontal" }]) }
+  const removeBeamSupport = (id) => { saveBeamState(); setBeamSupports(beamSupports.filter(s => s.id !== id)) }
+  const updateBeamSupport = (id, field, value) => { saveBeamState(); setBeamSupports(beamSupports.map(s => s.id === id ? { ...s, [field]: value } : s)) }
+  
+  const addBeamPointLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "point", magnitude: 5, x: safeBeamLength / 2 }]) }
+  const addBeamDistLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "distributed", magnitude: 2, start_x: 0, end_x: safeBeamLength / 2 }]) }
+  const addBeamMomentLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "moment", magnitude: 10, x: safeBeamLength / 2, direction: 'cw' }]) }
+  const removeBeamLoad = (id) => { saveBeamState(); setBeamLoads(beamLoads.filter(l => l.id !== id)) }
+  const updateBeamLoad = (id, field, value) => { saveBeamState(); setBeamLoads(beamLoads.map(l => l.id === id ? { ...l, [field]: value } : l)) }
+
+  const loadBeamPreset = (type) => {
+    saveBeamState()
+    if (type === 'simply-supported') {
+      setBeamLength(6)
+      setBeamSupports([{ id: 1, type: "pin", x: 0, direction: "horizontal" }, { id: 2, type: "roller", x: 6, direction: "horizontal" }])
+      setBeamLoads([{ id: 1, type: "point", magnitude: 10, x: 3 }])
+    } else if (type === 'overhanging') {
+      setBeamLength(8)
+      setBeamSupports([{ id: 1, type: "pin", x: 0, direction: "horizontal" }, { id: 2, type: "roller", x: 6, direction: "horizontal" }])
+      setBeamLoads([{ id: 1, type: "distributed", magnitude: 4, start_x: 0, end_x: 6 }, { id: 2, type: "point", magnitude: 8, x: 8 }])
+    } else if (type === 'cantilever') {
+      setBeamLength(4)
+      setBeamSupports([{ id: 1, type: "fixed", x: 0, direction: "horizontal" }])
+      setBeamLoads([{ id: 1, type: "distributed", magnitude: 5, start_x: 0, end_x: 4 }])
+    }
+  }
+
+  const shearExtremes = getMaxMinObj(chartData, 'shear');
+  const momentExtremes = getMaxMinObj(chartData, 'moment');
+  const maxAbsoluteShear = chartData.length > 0 ? Math.max(...chartData.map(d => Math.abs(d.shear || 0))) : 0;
+  const maxAbsoluteMoment = chartData.length > 0 ? Math.max(...chartData.map(d => Math.abs(d.moment || 0))) : 0;
+
+  const analyzeBeam = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const payload = {
+        beam_length: safeBeamLength,
+        supports: beamSupports.map(s => ({ ...s, x: Number(s.x) })),
+        loads: beamLoads.map(l => {
+          if (l.type === 'point') return { type: "point", magnitude: Number(l.magnitude), x: Number(l.x) }
+          if (l.type === 'moment') return { type: "moment", magnitude: Number(l.magnitude), x: Number(l.x), direction: l.direction }
+          return { type: "distributed", magnitude: Number(l.magnitude), start_x: Number(l.start_x), end_x: Number(l.end_x) }
+        }),
+        ei: null,
+        unit: forceUnit,
+        analysis_type: "determinate"
+      };
+      
+      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
+      
+      if (!response.data || !response.data.diagram_data || !response.data.diagram_data.x) {
+         throw new Error("Invalid response from server");
+      }
+
+      const data = response.data.diagram_data;
+      const formattedData = data.x.map((xValue, index) => {
+        return { x: xValue, shear: data.shear[index], moment: data.moment[index] };
+      });
+
+      setChartData(formattedData);
+      setBeamReactions(response.data.reactions || []);
+      setBeamSteps(response.data.steps || []);
+    } catch (error) {
+      console.error("Analysis Error:", error);
+      alert("Calculation Error! Please check your supports and loads to ensure stability.");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
+
+  // ==========================================
+  // 2. TRUSS BUILDER STATES
+  // ==========================================
+  const [nodes, setNodes] = useState([])
+  const [elements, setElements] = useState([])
+  const [selectedNodeId, setSelectedNodeId] = useState(null)
+  const [trussUnit, setTrussUnit] = useState('kN')
+  const [gridScale, setGridScale] = useState(1.0) 
+  const [trussSupports, setTrussSupports] = useState({})
+  const [trussLoads, setTrussLoads] = useState({})
+  const [trussAnalysisResult, setTrussAnalysisResult] = useState(null)
+  const [trussLocalData, setTrussLocalData] = useState({ steps: [], rxns: {} })
+  const [trussHistory, setTrussHistory] = useState([])
+
+  const saveTrussState = () => setTrussHistory(prev => [...prev, { nodes: [...nodes], elements: [...elements], supports: {...trussSupports}, loads: {...trussLoads} }])
+
+  const handleUndoTruss = () => {
+    if (trussHistory.length > 0) {
+      const lastState = trussHistory[trussHistory.length - 1]
+      setNodes(lastState.nodes)
+      setElements(lastState.elements)
+      setTrussSupports(lastState.supports)
+      setTrussLoads(lastState.loads)
+      setSelectedNodeId(null)
+      setTrussHistory(trussHistory.slice(0, -1))
+    }
+  }
+
+  const handleTrussNodeClick = (e, node) => {
+    e.stopPropagation(); 
+    if (selectedNodeId === node.id) { setSelectedNodeId(null);
+    } else if (selectedNodeId) {
+      const isDup = elements.some(el => (el.n1 === selectedNodeId && el.n2 === node.id) || (el.n1 === node.id && el.n2 === selectedNodeId));
+      if (!isDup) { saveTrussState(); setElements([...elements, { id: Date.now(), n1: selectedNodeId, n2: node.id }]); }
+      setSelectedNodeId(node.id); 
+    } else { setSelectedNodeId(node.id); }
+  };
+
+  const handleTrussCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const clickedExistingNode = nodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
+    if (clickedExistingNode) {
+      if (selectedNodeId && selectedNodeId !== clickedExistingNode.id) {
+        const isDup = elements.some(el => (el.n1 === selectedNodeId && el.n2 === clickedExistingNode.id) || (el.n1 === clickedExistingNode.id && el.n2 === selectedNodeId));
+        if (!isDup) { saveTrussState(); setElements([...elements, { id: Date.now(), n1: selectedNodeId, n2: clickedExistingNode.id }]); }
+      }
+      setSelectedNodeId(clickedExistingNode.id); return;
+    }
+    const existingNode = nodes.find(n => n.x === x && n.y === y);
+    if (!existingNode) {
+      saveTrussState();
+      const newNodeId = Date.now();
+      const nodeName = nodes.length < 26 ? String.fromCharCode(65 + nodes.length) : `N${nodes.length}`;
+      setNodes([...nodes, { id: newNodeId, name: nodeName, x, y }]);
+      if (selectedNodeId) setElements([...elements, { id: Date.now() + 1, n1: selectedNodeId, n2: newNodeId }]);
+      setSelectedNodeId(newNodeId);
+    } else { setSelectedNodeId(null); }
+  }
+
+  const handleSupportTypeChange = (nodeId, type) => {
+    saveTrussState();
+    setTrussSupports(prev => {
+      const ns = { ...prev };
+      if (type === 'none' || type === 'free') delete ns[nodeId];
+      else ns[nodeId] = { ...ns[nodeId], type, direction: ns[nodeId]?.direction || 'horizontal' };
+      return ns;
+    });
+  }
+
+  const handleTrussLoadChange = (nodeId, axis, value) => {
+    saveTrussState();
+    setTrussLoads(prev => {
+      const nl = { ...prev };
+      if (value === '') {
+        if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; }
+      } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; }
+      return nl;
+    });
+  }
+
+  const clearTrussCanvas = () => { saveTrussState(); setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
+
+  const loadTrussPreset = (type) => {
+    saveTrussState()
+    if (type === 'pratt') {
+      const pNodes = [
+        { id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 300, y: 350 }, { id: 3, name: "C", x: 400, y: 350 },
+        { id: 4, name: "D", x: 400, y: 250 }, { id: 5, name: "E", x: 300, y: 250 }, { id: 6, name: "F", x: 200, y: 250 }
+      ]
+      const pElements = [
+        { id: 101, n1: 1, n2: 2 }, { id: 102, n1: 2, n2: 3 }, { id: 103, n1: 6, n2: 5 }, { id: 104, n1: 5, n2: 4 },
+        { id: 105, n1: 1, n2: 6 }, { id: 106, n1: 2, n2: 5 }, { id: 107, n1: 3, n2: 4 }, { id: 108, n1: 1, n2: 5 }, { id: 109, n1: 3, n2: 5 }
+      ]
+      setNodes(pNodes); setElements(pElements);
+      setTrussSupports({ 1: { type: "pin", direction: "horizontal" }, 3: { type: "roller", direction: "horizontal" } });
+      setTrussLoads({ 2: { fy: 15 } });
+    } else if (type === 'warren') {
+      const wNodes = [
+        { id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 350, y: 350 }, { id: 3, name: "C", x: 500, y: 350 },
+        { id: 4, name: "D", x: 275, y: 220 }, { id: 5, name: "E", x: 425, y: 220 }
+      ]
+      const wElements = [
+        { id: 201, n1: 1, n2: 2 }, { id: 202, n1: 2, n2: 3 }, { id: 203, n1: 4, n2: 5 },
+        { id: 204, n1: 1, n2: 4 }, { id: 205, n1: 4, n2: 2 }, { id: 206, n1: 2, n2: 5 }, { id: 207, n1: 5, n2: 3 }
+      ]
+      setNodes(wNodes); setElements(wElements);
+      setTrussSupports({ 1: { type: "pin", direction: "horizontal" }, 3: { type: "roller", direction: "horizontal" } });
+      setTrussLoads({ 2: { fy: 20 } });
+    }
+  }
+
+  const autoCleanMesh = (nds, els) => {
+    let generated = [];
+    const getDist = (p1, p2) => Math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2);
+    const isBetween = (p, a, b) => Math.abs(getDist(a, p) + getDist(p, b) - getDist(a, b)) < 0.1;
+    els.forEach(el => {
+      const n1 = nds.find(n => n.id === el.n1); const n2 = nds.find(n => n.id === el.n2);
+      if (!n1 || !n2) return;
+      let onSeg = nds.filter(n => n.id !== n1.id && n.id !== n2.id && isBetween(n, n1, n2));
+      if (onSeg.length === 0) { generated.push({ n1: Math.min(n1.id, n2.id), n2: Math.max(n1.id, n2.id) });
+      } else {
+        onSeg.sort((a, b) => getDist(n1, a) - getDist(n1, b));
+        let path = [n1, ...onSeg, n2];
+        for (let i = 0; i < path.length - 1; i++) { generated.push({ n1: Math.min(path[i].id, path[i+1].id), n2: Math.max(path[i].id, path[i+1].id) }); }
+      }
+    });
+    const unique = []; const seen = new Set();
+    generated.forEach((el, index) => {
+      const key = `${el.n1}-${el.n2}`;
+      if (!seen.has(key)) { seen.add(key); unique.push({ id: Date.now() + index, n1: el.n1, n2: el.n2 }); }
+    });
+    return unique;
+  };
+
+  const runTrussAnalysis = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const cleanedElements = autoCleanMesh(nodes, elements);
+      setElements(cleanedElements);
+      const tRxns = {}; const tSteps = [];
+      tSteps.push("=== ENGINEERING STATICS : TRUSS REACTIONS ===");
+      let sumFx = 0; let sumFy = 0;
+      Object.entries(trussLoads).forEach(([id, f]) => { sumFx += Number(f.fx || 0); sumFy -= Number(f.fy || 0); });
+      const sups = Object.entries(trussSupports);
+      if(sups.length > 0) {
+          const pivotId = sups[0][0]; const pivotNode = nodes.find(n => n.id == pivotId); let mPivot = 0;
+          Object.entries(trussLoads).forEach(([id, f]) => {
+              const n = nodes.find(x => x.id == id);
+              const dx = (n.x - pivotNode.x)/PIXELS_PER_GRID * gridScale; const dy = -(n.y - pivotNode.y)/PIXELS_PER_GRID * gridScale;
+              mPivot += (-Number(f.fy||0) * dx) - (Number(f.fx||0) * dy);
+          });
+          let unknowns = 0;
+          sups.forEach(([id, data]) => {
+              if(data.type==='pin') unknowns += 2; if(data.type==='roller') unknowns += 1; if(data.type==='fixed') unknowns += 3;
+          });
+          if (unknowns === 3 && sups.length === 2) {
+              let pinId, rollerId;
+              if(trussSupports[sups[0][0]].type === 'pin') { pinId = sups[0][0]; rollerId = sups[1][0]; }
+              else { pinId = sups[1][0]; rollerId = sups[0][0]; }
+              const pNode = nodes.find(n => n.id == pinId); const rNode = nodes.find(n => n.id == rollerId);
+              let mPin = 0;
+              Object.entries(trussLoads).forEach(([id, f]) => {
+                  const n = nodes.find(x => x.id == id);
+                  const dx = (n.x - pNode.x)/PIXELS_PER_GRID * gridScale; const dy = -(n.y - pNode.y)/PIXELS_PER_GRID * gridScale;
+                  mPin += (-Number(f.fy||0) * dx) - (Number(f.fx||0) * dy);
+              });
+              const dxR = (rNode.x - pNode.x)/PIXELS_PER_GRID * gridScale; let r_roller_y = 0;
+              if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
+              const r_pin_y = -sumFy - r_roller_y; const r_pin_x = -sumFx;
+              tRxns[pinId] = { fx: r_pin_x, fy: r_pin_y }; tRxns[rollerId] = { fx: 0, fy: r_roller_y };
+              tSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${trussUnit}`);
+              tSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${trussUnit}`);
+              tSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${trussUnit}`);
+          } else {
+              tSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate or has non-standard supports.`);
+          }
+      } else { tSteps.push("No supports defined."); }
+      setTrussLocalData({ steps: tSteps, rxns: tRxns });
+
+      const payload = {
+        nodes: nodes.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
+        elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })), 
+        supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: null
+      };
+      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
+      if(!response.data) throw new Error("No Data from Server");
+      setTrussAnalysisResult(response.data);
+    } catch (error) {
+      console.error("Truss Analysis Error:", error); 
+      alert("Analysis Failed! Is your Truss unstable or unconstrained?");
+    } finally { setIsAnalyzing(false); }
+  }
+
+  // ==========================================
+  // 3. FRAME ANALYSIS STATES
+  // ==========================================
+  const [fNodes, setFNodes] = useState([])
+  const [fElements, setFElements] = useState([])
+  const [fSelectedNodeId, setFSelectedNodeId] = useState(null)
+  const [fSelectedElementId, setFSelectedElementId] = useState(null)
+  const [fSupports, setFSupports] = useState({})
+  const [fLoads, setFLoads] = useState({}) 
+  const [fDistLoads, setFDistLoads] = useState({}) 
+  const [fPointLoadsOnElement, setFPointLoadsOnElement] = useState({})
+  const [fForceUnit, setFForceUnit] = useState('kN')
+  const [fGridScale, setFGridScale] = useState(1.0)
+  const [frameLocalData, setFrameLocalData] = useState({ steps: [], rxns: {}, analyzed: false })
+  const [frameHistory, setFrameHistory] = useState([])
+
+  const saveFrameState = () => setFrameHistory(prev => [...prev, { fNodes: [...fNodes], fElements: [...fElements], fSupports: {...fSupports}, fLoads: {...fLoads}, fDistLoads: {...fDistLoads}, fPointLoads: {...fPointLoadsOnElement} }])
+
+  const handleUndoFrame = () => {
+    if (frameHistory.length > 0) {
+      const last = frameHistory[frameHistory.length - 1]
+      setFNodes(last.fNodes)
+      setFElements(last.fElements)
+      setFSupports(last.fSupports)
+      setFLoads(last.fLoads)
+      setFDistLoads(last.fDistLoads)
+      setFPointLoadsOnElement(last.fPointLoads)
+      setFSelectedNodeId(null)
+      setFSelectedElementId(null)
+      setFrameHistory(frameHistory.slice(0, -1))
+    }
+  }
+
+  const fSelectedNode = fNodes.find(n => n.id === fSelectedNodeId);
+  const fSelectedElement = fElements.find(e => e.id === fSelectedElementId);
+
+  const handleFrameNodeClick = (e, node) => {
+    e.stopPropagation(); setFSelectedElementId(null);
+    if (fSelectedNodeId === node.id) { setFSelectedNodeId(null);
+    } else if (fSelectedNodeId) {
+      const isDup = fElements.some(el => (el.n1 === fSelectedNodeId && el.n2 === node.id) || (el.n1 === node.id && el.n2 === fSelectedNodeId));
+      if (!isDup) { saveFrameState(); setFElements([...fElements, { id: Date.now(), n1: fSelectedNodeId, n2: node.id }]); }
+      setFSelectedNodeId(node.id);
+    } else { setFSelectedNodeId(node.id); }
+  }
+
+  const handleFrameElementClick = (e, el) => { e.stopPropagation(); setFSelectedNodeId(null); setFSelectedElementId(fSelectedElementId === el.id ? null : el.id); }
+
+  const handleFrameCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const clickedExistingNode = fNodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
+    if (clickedExistingNode) {
+      if (fSelectedNodeId && fSelectedNodeId !== clickedExistingNode.id) {
+        const isDup = fElements.some(el => (el.n1 === fSelectedNodeId && el.n2 === clickedExistingNode.id) || (el.n1 === clickedExistingNode.id && el.n2 === fSelectedNodeId));
+        if (!isDup) { saveFrameState(); setFElements([...fElements, { id: Date.now(), n1: fSelectedNodeId, n2: clickedExistingNode.id }]); }
+      }
+      setFSelectedNodeId(clickedExistingNode.id); return;
+    }
+    const existingNode = fNodes.find(n => n.x === x && n.y === y);
+    if (!existingNode) {
+      saveFrameState(); setFSelectedElementId(null);
+      const newNodeId = Date.now();
+      const nodeName = fNodes.length < 26 ? String.fromCharCode(65 + fNodes.length) : `N${fNodes.length}`;
+      setFNodes([...fNodes, { id: newNodeId, name: nodeName, x, y }]);
+      if (fSelectedNodeId) setFElements([...fElements, { id: Date.now() + 1, n1: fSelectedNodeId, n2: newNodeId }]);
+      setFSelectedNodeId(newNodeId);
+    } else { setFSelectedNodeId(null); setFSelectedElementId(null); }
+  }
+
+  const handleFSupportTypeChange = (nodeId, type) => {
+    saveFrameState();
+    setFSupports(prev => {
+      const ns = { ...prev };
+      if (type === 'none' || type === 'free') delete ns[nodeId];
+      else ns[nodeId] = { ...ns[nodeId], type, direction: ns[nodeId]?.direction || 'horizontal' };
+      return ns;
+    });
+  }
+  const handleFLoadChange = (nodeId, axis, value) => { saveFrameState(); setFLoads(prev => { const nl = { ...prev }; if (value === '') { if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; } } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; } return nl; }); }
+  const handleFDistLoadChange = (elId, axis, value) => { saveFrameState(); setFDistLoads(prev => { const nd = { ...prev }; if (value === '') { if (nd[elId]) { delete nd[elId][axis]; if (Object.keys(nd[elId]).length === 0) delete nd[elId]; } } else { nd[elId] = { ...(nd[elId] || {}), [axis]: Number(value) }; } return nd; }); }
+  const handleElementPointLoadChange = (elId, field, value) => { saveFrameState(); setFPointLoadsOnElement(prev => { const np = { ...prev }; if (value === '') { if (np[elId]) { delete np[elId][field]; if (Object.keys(np[elId]).length === 0) delete np[elId]; } } else { np[elId] = { ...(np[elId] || {}), [field]: Number(value) }; } return np; }); }
+  const clearFrameCanvas = () => { saveFrameState(); setFNodes([]); setFElements([]); setFSupports({}); setFLoads({}); setFDistLoads({}); setFPointLoadsOnElement({}); setFSelectedNodeId(null); setFSelectedElementId(null); setFrameLocalData({ steps: [], rxns: {}, analyzed: false }); }
+
+  const loadFramePreset = (type) => {
+    saveFrameState()
+    if (type === 'portal') {
+      const fNodesData = [
+        { id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 200, y: 200 },
+        { id: 3, name: "C", x: 350, y: 200 }, { id: 4, name: "D", x: 350, y: 350 }
+      ]
+      const fElementsData = [
+        { id: 11, n1: 1, n2: 2 }, { id: 12, n1: 2, n2: 3 }, { id: 13, n1: 3, n2: 4 }
+      ]
+      setFNodes(fNodesData); setFElements(fElementsData);
+      setFSupports({ 1: { type: "pin", direction: "horizontal" }, 4: { type: "roller", direction: "horizontal" } })
+      setFDistLoads({ 12: { wy: 3 } })
+    }
+  }
+
+  const runFrameStaticsAnalysis = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const fRxns = {}; const fSteps = []; fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
+      let sumFx = 0; let sumFy = 0;
+      const sups = Object.entries(fSupports);
+      if(sups.length > 0) {
+          const pivotId = sups[0][0]; const pivotNode = fNodes.find(n => n.id == pivotId); let mPivot = 0;
+          Object.entries(fLoads).forEach(([id, f]) => {
+              const n = fNodes.find(x => x.id == id);
+              const fx = Number(f.fx||0); const fy = -Number(f.fy||0); const mz = Number(f.mz||0);
+              sumFx += fx; sumFy += fy;
+              const dx = (n.x - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(n.y - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
+              mPivot += (fy * dx) - (fx * dy) + mz;
+          });
+          Object.entries(fDistLoads).forEach(([elId, dist]) => {
+              const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
+              const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
+              const wx = Number(dist.wx||0); const wy = -Number(dist.wy||0);
+              const tfx = wx * L_m; const tfy = wy * L_m;
+              sumFx += tfx; sumFy += tfy;
+              const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
+              const dx = (cx - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
+              mPivot += (tfy * dx) - (tfx * dy);
+          });
+          Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
+              const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
+              const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
+              const px = Number(pLoad.px||0); const py = -Number(pLoad.py||0);
+              sumFx += px; sumFy += py;
+              const ratio = L_m > 0 ? Number(pLoad.x||0) / L_m : 0;
+              const lx = n1.x + (n2.x - n1.x)*ratio; const ly = n1.y + (n2.y - n1.y)*ratio;
+              const dx = (lx - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(ly - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
+              mPivot += (py * dx) - (px * dy);
+          });
+
+          let unknowns = 0;
+          sups.forEach(([id, data]) => { if(data.type==='pin') unknowns += 2; if(data.type==='roller') unknowns += 1; if(data.type==='fixed') unknowns += 3; });
+
+          if (unknowns === 3 && sups.length === 2) {
+              let pinId, rollerId;
+              if(fSupports[sups[0][0]].type === 'pin') { pinId = sups[0][0]; rollerId = sups[1][0]; }
+              else { pinId = sups[1][0]; rollerId = sups[0][0]; }
+              const pNode = fNodes.find(n => n.id == pinId); const rNode = fNodes.find(n => n.id == rollerId);
+              let mPin = mPivot; 
+              if (pivotId !== pinId) {
+                  mPin = 0;
+                  Object.entries(fLoads).forEach(([id, f]) => {
+                      const n = fNodes.find(x => x.id == id);
+                      const fx = Number(f.fx||0); const fy = -Number(f.fy||0); const mz = Number(f.mz||0);
+                      const dx = (n.x - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(n.y - pNode.y)/PIXELS_PER_GRID * fGridScale;
+                      mPin += (fy * dx) - (fx * dy) + mz;
+                  });
+                  Object.entries(fDistLoads).forEach(([elId, dist]) => {
+                      const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
+                      const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
+                      const tfx = Number(dist.wx||0) * L_m; const tfy = -Number(dist.wy||0) * L_m;
+                      const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
+                      const dx = (cx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pNode.y)/PIXELS_PER_GRID * fGridScale;
+                      mPin += (tfy * dx) - (tfx * dy);
+                  });
+                  Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
+                      const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
+                      const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
+                      const px = Number(pLoad.px||0); const py = -Number(pLoad.py||0);
+                      const ratio = L_m > 0 ? Number(pLoad.x||0) / L_m : 0;
+                      const lx = n1.x + (n2.x - n1.x)*ratio; const ly = n1.y + (n2.y - n1.y)*ratio;
+                      const dx = (lx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(ly - pNode.y)/PIXELS_PER_GRID * fGridScale;
+                      mPin += (py * dx) - (px * dy);
+                  });
+              }
+              const dxR = (rNode.x - pNode.x)/PIXELS_PER_GRID * fGridScale; let r_roller_y = 0;
+              if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
+              const r_pin_y = -sumFy - r_roller_y; const r_pin_x = -sumFx;
+              fRxns[pinId] = { fx: r_pin_x, fy: r_pin_y }; fRxns[rollerId] = { fx: 0, fy: r_roller_y };
+              
+              fSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${fForceUnit}`);
+              fSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${fForceUnit}`);
+              fSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${fForceUnit}`);
+          } else { fSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate.`); }
+      } else { fSteps.push("No supports defined."); }
+      setFrameLocalData({ steps: fSteps, rxns: fRxns, analyzed: true });
+    } catch (error) {
+      alert("Error calculating Frame Reactions");
+    } finally { setIsAnalyzing(false); }
+  }
+
+  const inputStyle = { width: '80px', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}`, marginLeft: '10px', fontFamily: '"Times New Roman", Times, serif', backgroundColor: '#2A2A2A', color: theme.textMain }
+
+  // ==========================================
+  // ENTER KEY LISTENER
+  // ==========================================
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        if (currentView === 'statics') {
+          if (activeTab === 'beam') analyzeBeam();
+          else if (activeTab === 'truss' && nodes.length >= 3) runTrussAnalysis();
+          else if (activeTab === 'frame' && fNodes.length >= 2) runFrameStaticsAnalysis();
+          else if (activeTab === 'vectors' && vectorLoads.length > 0) analyzeVectors();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  });
 
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
@@ -125,7 +845,7 @@ function App() {
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(18,18,18,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '70px', height: '70px', border: `6px solid #333`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
           <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '6px', fontSize: '2.2rem', fontFamily: '"Times New Roman", Times, serif', fontWeight: 'bold' }}>CHU CALC</h1>
-          <p style={{ color: '#aaa', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Particle Equilibrium...</p>
+          <p style={{ color: '#aaa', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Structural Mechanics...</p>
           <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
         </div>
       )}
@@ -139,10 +859,15 @@ function App() {
               <button onClick={() => setShowFormulaModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', fontWeight: 'bold', color: '#fff' }}>✕</button>
             </div>
             <div style={{ fontSize: '0.95rem', lineHeight: '1.6', color: '#ccc' }}>
-              <h4 style={{ margin: '10px 0 5px 0', color: '#fff' }}>1. Particle Equilibrium Equations</h4>
+              <h4 style={{ margin: '10px 0 5px 0', color: '#fff' }}>1. Static Equilibrium Equations</h4>
               <p style={{ backgroundColor: '#2A2A2A', padding: '10px', borderRadius: '6px', fontFamily: 'monospace', color: '#fff' }}>
-                ∑Fx = 0 ➔ T₂ cos(θ₂) - T₁ cos(θ₁) = 0<br/>
-                ∑Fy = 0 ➔ T₁ sin(θ₁) + T₂ sin(θ₂) - W = 0
+                ∑Fx = 0 (Horizontal Force Equilibrium)<br/>
+                ∑Fy = 0 (Vertical Force Equilibrium)<br/>
+                ∑M_z = 0 (Moment Equilibrium about Any Point)
+              </p>
+              <h4 style={{ margin: '15px 0 5px 0', color: '#fff' }}>2. Particle Equilibrium (Chapter 3)</h4>
+              <p style={{ backgroundColor: '#2A2A2A', padding: '10px', borderRadius: '6px', fontFamily: 'monospace', color: '#fff' }}>
+                ∑F = 0 ➔ ∑Fx = 0, ∑Fy = 0
               </p>
             </div>
           </div>
@@ -157,7 +882,7 @@ function App() {
         select, input { background-color: #2A2A2A !important; color: #E0E0E0 !important; border: 1px solid #444 !important; }
       `}</style>
 
-      {/* ======================= HOME VIEW ======================= */}
+      {/* ======================= HOME VIEW: 4 SUBJECTS ======================= */}
       {currentView === 'home' ? (
         <div style={{ width: '100%', maxWidth: '1300px', margin: '40px auto', textAlign: 'center', padding: '0 20px', boxSizing: 'border-box' }}>
           
@@ -169,6 +894,7 @@ function App() {
           <p style={{ fontSize: '1.2rem', color: '#aaa', marginBottom: '40px' }}>Select an Engineering Subject to Start Analysis</p>
           
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginBottom: '50px' }}>
+            
             <div 
               onClick={() => setCurrentView('statics')}
               style={{ backgroundColor: '#1E1E1E', border: '1px solid #333', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', transition: '0.3s', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', textAlign: 'left' }}
@@ -178,23 +904,59 @@ function App() {
               <h3 style={{ color: '#00BFFF', fontSize: '1.4rem', marginBottom: '10px' }}>1. Engineering Statics</h3>
               <p style={{ color: '#aaa', fontSize: '0.95rem' }}>Particle equilibrium, force vectors, beams, trusses, and frames.</p>
             </div>
-            {/* วิชาอื่นๆ */}
-            <div onClick={() => alert("Coming soon!")} style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}>
+
+            <div 
+              onClick={() => alert("Mechanic of Materials module is coming soon!")}
+              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
+            >
               <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>2. Mechanic of Materials</h3>
-              <p style={{ color: '#666', fontSize: '0.95rem' }}>Stress, strain, and torsional deformation analysis.</p>
+              <p style={{ color: '#666', fontSize: '0.95rem' }}>Stress, strain, bending, and torsional deformation analysis.</p>
             </div>
-            <div onClick={() => alert("Coming soon!")} style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}>
+
+            <div 
+              onClick={() => alert("Theory of Structures module is coming soon!")}
+              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
+            >
               <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>3. Theory of Structures</h3>
-              <p style={{ color: '#666', fontSize: '0.95rem' }}>Indeterminate structures and energy methods.</p>
+              <p style={{ color: '#666', fontSize: '0.95rem' }}>Indeterminate structures, influence lines, and energy methods.</p>
             </div>
-            <div onClick={() => alert("Coming soon!")} style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}>
+
+            <div 
+              onClick={() => alert("Structural Analysis module is coming soon!")}
+              style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
+            >
               <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>4. Structural Analysis</h3>
-              <p style={{ color: '#666', fontSize: '0.95rem' }}>Matrix methods and finite element models.</p>
+              <p style={{ color: '#666', fontSize: '0.95rem' }}>Matrix methods, stiffness method, and finite element models.</p>
+            </div>
+
+          </div>
+
+          <div style={{ backgroundColor: '#181818', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '25px', textAlign: 'left' }}>
+            <h3 style={{ color: '#fff', fontSize: '1.2rem', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              🕒 Recent Analysis Sessions
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {recentProjects.map(proj => (
+                <div 
+                  key={proj.id}
+                  onClick={() => { setCurrentView('statics'); setActiveTab(proj.type); }}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 18px', backgroundColor: '#1E1E1E', borderRadius: '8px', border: '1px solid #333', cursor: 'pointer', transition: '0.2s' }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#252525'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1E1E1E'}
+                >
+                  <span style={{ color: '#E0E0E0', fontWeight: 'bold' }}>{proj.name}</span>
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.85rem', color: '#888', textTransform: 'uppercase' }}>[{proj.type}]</span>
+                    <span style={{ fontSize: '0.85rem', color: '#00BFFF' }}>{proj.date} ➔</span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
+
         </div>
       ) : (
-        /* ======================= STATICS VIEW ======================= */
+        /* ======================= STATICS VIEW: THE CALCULATOR ======================= */
         <div style={{ width: '100%', margin: '0 auto' }}>
           
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', width: '100%' }}>
@@ -221,142 +983,113 @@ function App() {
             <button onClick={() => setActiveTab('frame')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'frame' ? '#333' : '#1E1E1E', color: '#fff' }}>Frame Reactions</button>
           </div>
 
-          {/* ======================= TAB: PARTICLE EQUILIBRIUM (SPACE TELESCOPE & PIN SUPPORTS) ======================= */}
+          {/* ======================= TAB -1: PARTICLE EQUILIBRIUM (CANVAS BUILDER) ======================= */}
           {activeTab === 'particle' && (
             <div className="report-document">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
                 <div>
-                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Equilibrium of a Particle (Customizable Setup)</h1>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Interactive Particle Equilibrium with Horizontal Pin Supports and Space Telescope Load.</p>
+                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Equilibrium of a Particle (Chapter 3)</h1>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Interactive Canvas: Click to create nodes, connect cables, set supports & apply concurrent loads.</p>
                 </div>
               </div>
 
-              {/* Workspace สำหรับแสดงภาพจำลองตามโจทย์ */}
-              <div style={{ display: 'flex', gap: '20px', marginBottom: '25px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                
-                {/* รูปที่ 1: Problem Diagram (Pin แนวนอน + กล้องโทรทรรศน์อวกาศ) */}
-                <div style={{ flex: 1, minWidth: '340px', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: '#00BFFF', fontSize: '1rem' }}>Problem Diagram: Suspension System</h4>
-                  <svg viewBox="0 0 450 320" style={{ width: '100%', height: 'auto', backgroundColor: '#151515' }}>
-                    {/* ผนังซ้ายและขวา */}
-                    <rect x="40" y="60" width="15" height="100" fill="#a07050" stroke="#555" />
-                    <rect x="395" y="60" width="15" height="100" fill="#a07050" stroke="#555" />
-                    {/* Pin แนวนอนซ้าย (C) และขวา (B) */}
-                    <circle cx="55" cy="90" r="6" fill="#FFA500" stroke="#fff" strokeWidth="1.5" />
-                    <text x="50" y="80" fill="#fff" fontSize="14" fontWeight="bold">C</text>
-                    <circle cx="395" cy="90" r="6" fill="#FFA500" stroke="#fff" strokeWidth="1.5" />
-                    <text x="395" y="80" fill="#fff" fontSize="14" fontWeight="bold">B</text>
+              {/* Canvas Workspace */}
+              <div style={{ border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A', marginBottom: '20px' }}>
+                <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={clearParticleCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear Canvas</button>
+                  </div>
+                  <div style={{ fontSize: '0.9rem', color: '#aaa', fontStyle: 'italic' }}>
+                    💡 Click to add/select node. Click two nodes to connect cable.
+                  </div>
+                </div>
+
+                <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#151515', display: 'flex', justifyContent: 'center' }}>
+                  <svg width="1200" height="450" onClick={handleParticleCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#151515' }}>
+                    <defs>
+                      <pattern id="gridParticle" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#gridParticle)" />
                     
-                    {/* จุด Joint ตรงกลาง (B / Ring) */}
-                    <circle cx="225" cy="180" r="6" fill="#00BFFF" stroke="#fff" strokeWidth="1.5" />
-                    <text x="235" y="175" fill="#00BFFF" fontSize="14" fontWeight="bold">Joint</text>
+                    {/* Render Cables */}
+                    {pCables.map(c => {
+                      const n1 = pNodes.find(n => n.id === c.n1);
+                      const n2 = pNodes.find(n => n.id === c.n2);
+                      if (!n1 || !n2) return null;
+                      return <line key={c.id} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke="#00BFFF" strokeWidth="4" strokeLinecap="round" />;
+                    })}
 
-                    {/* สายเคเบิลซ้ายและขวา */}
-                    <line x1="55" y1="90" x2="225" y2="180" stroke="#00BFFF" strokeWidth="3.5" />
-                    <line x1="395" y1="90" x2="225" y2="180" stroke="#00BFFF" strokeWidth="3.5" />
+                    {/* Render Supports */}
+                    {Object.entries(pSupports).map(([nId]) => {
+                      const node = pNodes.find(n => n.id === parseInt(nId));
+                      if (!node) return null;
+                      return <RenderSupportSVG key={`sup-${nId}`} cx={node.x} cy={node.y} type="pin" dir="horizontal" />;
+                    })}
 
-                    {/* มุม θ₁ และ θ₂ */}
-                    <text x="110" y="125" fill="#FFA500" fontSize="13" fontWeight="bold">θ₁ = {pAngle1}°</text>
-                    <text x="300" y="125" fill="#FFA500" fontSize="13" fontWeight="bold">θ₂ = {pAngle2}°</text>
+                    {/* Render Loads */}
+                    {Object.entries(pLoads).map(([nId, load]) => {
+                      const node = pNodes.find(n => n.id === parseInt(nId));
+                      if (!node) return null;
+                      return (
+                        <g key={`load-${nId}`}>
+                          {Number(load.fy) !== 0 && (
+                            <line x1={node.x} y1={load.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={load.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.supportOrange} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                          )}
+                          <text x={node.x + 12} y={node.y - 10} fill={theme.supportOrange} fontSize="13" fontWeight="bold">Load: {load.fy || load.fx}</text>
+                        </g>
+                      );
+                    })}
 
-                    {/* สายเคเบิลห้อยน้ำหนัก */}
-                    <line x1="225" y1="180" x2="225" y2="230" stroke="#00BFFF" strokeWidth="3.5" />
-
-                    {/* รูปกล้องโทรทรรศน์อวกาศ (Space Telescope) */}
-                    <g transform="translate(195, 230)">
-                      {/* บอดี้กล้องหลัก */}
-                      <rect x="0" y="0" width="60" height="50" rx="6" fill="#334155" stroke="#94a3b8" strokeWidth="2" />
-                      {/* แผงโซลาร์เซลล์ซ้าย-ขวา */}
-                      <rect x="-30" y="10" width="25" height="30" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1" />
-                      <rect x="65" y="10" width="25" height="30" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1" />
-                      <line x1="-30" y1="25" x2="-5" y2="25" stroke="#94a3b8" strokeWidth="2" />
-                      <line x1="65" y1="25" x2="90" y2="25" stroke="#94a3b8" strokeWidth="2" />
-                      {/* เลนส์กล้อง */}
-                      <circle cx="30" cy="50" r="10" fill="#0ea5e9" stroke="#fff" strokeWidth="1.5" />
-                      <text x="12" y="32" fill="#fff" fontSize="12" fontWeight="bold">Telescope</text>
-                    </g>
-                    <text x="215" y="300" fill="#FFA500" fontSize="13" fontWeight="bold">Weight W = {pWeight} {particleUnit}</text>
-                  </svg>
-                </div>
-
-                {/* รูปที่ 2: Free-Body Diagram (FBD) ของ Joint */}
-                <div style={{ flex: 1, minWidth: '340px', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: '#FFA500', fontSize: '1rem' }}>Free-Body Diagram (Concurrent Forces at Joint)</h4>
-                  <svg viewBox="0 0 450 320" style={{ width: '100%', height: 'auto', backgroundColor: '#151515' }}>
-                    {/* แกนพิกัด X-Y */}
-                    <line x1="225" y1="40" x2="225" y2="280" stroke="#666" strokeWidth="1.5" strokeDasharray="4,4" />
-                    <text x="235" y="55" fill="#888" fontSize="14">y</text>
-                    <line x1="60" y1="180" x2="390" y2="180" stroke="#666" strokeWidth="1.5" strokeDasharray="4,4" />
-                    <text x="375" y="170" fill="#888" fontSize="14">x</text>
-                    
-                    {/* จุด Joint ตรงกลาง */}
-                    <circle cx="225" cy="180" r="5" fill="#fff" />
-                    <text x="200" y="195" fill="#fff" fontSize="13" fontWeight="bold">Joint</text>
-
-                    {/* แรง T₁ (ซ้ายขึ้นบน) */}
-                    <line x1="225" y1="180" x2="115" y2="90" stroke="#00BFFF" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
-                    <text x="120" y="125" fill="#00BFFF" fontSize="14" fontWeight="bold">T₁</text>
-
-                    {/* แรง T₂ (ขวาขึ้นบน) */}
-                    <line x1="225" y1="180" x2="335" y2="90" stroke="#00BFFF" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
-                    <text x="305" y="125" fill="#00BFFF" fontSize="14" fontWeight="bold">T₂</text>
-
-                    {/* น้ำหนัก W (ดึงลงล่าง) */}
-                    <line x1="225" y1="180" x2="225" y2="260" stroke="#FFA500" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
-                    <text x="235" y="230" fill="#FFA500" fontSize="13" fontWeight="bold">W = {pWeight} {particleUnit}</text>
-                  </svg>
-                </div>
-
-              </div>
-
-              {/* ส่วนปรับตั้งค่าตัวแปรอิสระ */}
-              <div style={{ backgroundColor: '#1A1A1A', padding: '20px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
-                <h3 style={{ margin: '0 0 15px 0', fontSize: '1.1rem', color: '#fff' }}>Custom Problem Inputs (Free Variable Setup)</h3>
-                
-                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Telescope Weight (W):</label>
-                    <input type="number" value={pWeight} onChange={(e) => setPWeight(e.target.value)} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Cable Angle 1 (θ₁°):</label>
-                    <input type="number" value={pAngle1} onChange={(e) => setPAngle1(e.target.value)} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Cable Angle 2 (θ₂°):</label>
-                    <input type="number" value={pAngle2} onChange={(e) => setPAngle2(e.target.value)} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Unit:</label>
-                    <select value={particleUnit} onChange={(e) => setParticleUnit(e.target.value)} style={{ padding: '8px', borderRadius: '6px' }}>
-                      <option value="N">N</option><option value="kN">kN</option><option value="lb">lb</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '20px', textAlign: 'center' }}>
-                  <button onClick={analyzeSimpleParticle} style={{ padding: '12px 30px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer' }}>Calculate Equilibrium ($T_1$ & $T_2$)</button>
-                </div>
-              </div>
-
-              {particleResult && (
-                <div style={{ border: `1px solid ${theme.border}`, padding: '20px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>Equilibrium Analysis Steps & Solution</h4>
-                  <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
-                    {particleResult.steps.map((step, idx) => (
-                      <div key={idx} style={{ marginBottom: '8px' }}>{step}</div>
+                    {/* Render Nodes */}
+                    {pNodes.map(node => (
+                      <g key={node.id} style={{ cursor: 'pointer' }}>
+                        <circle cx={node.x} cy={node.y} r={25} fill="transparent" />
+                        <circle cx={node.x} cy={node.y} r={selectedPNodeId === node.id ? 9 : 6} fill={selectedPNodeId === node.id ? theme.accent : "#222"} stroke="#fff" strokeWidth="2" />
+                        <text x={node.x + 10} y={node.y - 10} fill="#fff" fontSize="13" fontWeight="bold">{node.name}</text>
+                      </g>
                     ))}
+                  </svg>
+                </div>
+              </div>
+
+              {/* Node Config Panel */}
+              <div style={{ backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
+                {pNodes.find(n => n.id === selectedPNodeId) ? (
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <strong style={{ color: '#fff' }}>Selected Node {pNodes.find(n => n.id === selectedPNodeId).name}:</strong>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={!!pSupports[selectedPNodeId]} 
+                        onChange={(e) => handlePSupportChange(selectedPNodeId, e.target.checked)} 
+                      /> Fixed Support (Wall/Pin)
+                    </label>
+                    <input type="number" placeholder="Fx Load" value={pLoads[selectedPNodeId]?.fx || ''} onChange={(e) => handlePLoadChange(selectedPNodeId, 'fx', e.target.value)} style={{ width: '80px', padding: '4px' }} />
+                    <input type="number" placeholder="Fy Load (Weight)" value={pLoads[selectedPNodeId]?.fy || ''} onChange={(e) => handlePLoadChange(selectedPNodeId, 'fy', e.target.value)} style={{ width: '100px', padding: '4px' }} />
                   </div>
-                  <div style={{ display: 'flex', gap: '30px', fontSize: '1.1rem', color: '#fff', flexWrap: 'wrap' }}>
-                    <span><strong>Tension T₁ (Left Cable):</strong> {particleResult.T1.toFixed(2)} {particleUnit}</span>
-                    <span><strong>Tension T₂ (Right Cable):</strong> {particleResult.T2.toFixed(2)} {particleUnit}</span>
+                ) : (
+                  <span style={{ fontSize: '0.95rem', color: '#888', fontStyle: 'italic' }}>💡 Click any node on canvas to set support or apply external loads/weights.</span>
+                )}
+              </div>
+
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <button onClick={runParticleEquilibrium} disabled={pNodes.length < 2} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: pNodes.length < 2 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: pNodes.length < 2 ? 'not-allowed' : 'pointer' }}>Analyze Particle Equilibrium</button>
+              </div>
+
+              {particleAnalysisResult && (
+                <div style={{ border: `1px solid ${theme.border}`, padding: '20px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>Particle Equilibrium Analysis Steps</h4>
+                  <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
+                    {particleAnalysisResult.steps.map((step, idx) => (
+                      <div key={idx} style={{ marginBottom: '6px' }}>{step}</div>
+                    ))}
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* ส่วนแท็บอื่นๆ (Vectors, Beam, Truss, Frame) คงเดิม */}
+          {/* ======================= TAB 0: FORCE VECTORS ======================= */}
           {activeTab === 'vectors' && (
             <div className="report-document">
                <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
@@ -365,6 +1098,7 @@ function App() {
                   <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: Vector Addition & Equilibrium</p>
                 </div>
               </div>
+
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                    <h3 style={{ margin: '0', color: theme.textMain, fontSize: '1.1rem' }}>1. Force Vectors Visualization</h3>
@@ -375,6 +1109,7 @@ function App() {
                      </select>
                    </div>
                  </div>
+                 
                  <div style={{ width: '100%', overflow: 'hidden', display: 'flex', justifyContent: 'center', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '6px' }}>
                    <svg width="100%" height="400" viewBox="0 0 1000 600" style={{ display: 'block' }}>
                       <g opacity="0.3">
@@ -384,10 +1119,12 @@ function App() {
                       <text x="960" y="320" fill="#fff" fontSize="16" fontWeight="bold">X</text>
                       <text x="515" y="30" fill="#fff" fontSize="16" fontWeight="bold">Y</text>
                       <circle cx="500" cy="300" r="5" fill="#fff" />
+
                       {(() => {
                           const cx = 500; const cy = 300;
                           const vMax = vectorResult ? Math.max(...vectorLoads.map(v=>v.magnitude), vectorResult.rMag) : Math.max(10, ...vectorLoads.map(v=>v.magnitude));
                           const scaleFactor = 220 / (vMax || 1); 
+
                           return (
                             <>
                               {vectorLoads.map((v, i) => {
@@ -395,8 +1132,10 @@ function App() {
                                  const { drawRad, isOut } = getVectorComponents(v);
                                  const xOut = cx + v.magnitude * Math.cos(drawRad) * scaleFactor;
                                  const yOut = cy - v.magnitude * Math.sin(drawRad) * scaleFactor;
+                                 
                                  const textOffX = xOut > cx ? 10 : -35;
                                  const textOffY = yOut > cy ? 20 : -10;
+
                                  return (
                                     <g key={v.id}>
                                       {isOut ? (
@@ -408,10 +1147,22 @@ function App() {
                                     </g>
                                  )
                               })}
+                              
                               {vectorResult && vectorResult.rMag > 0.01 && (
                                   <g>
-                                    <line x1={cx} y1={cy} x2={cx + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * scaleFactor} y2={cy - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * scaleFactor} stroke={theme.supportOrange} strokeWidth="5" markerEnd="url(#arrowReaction)" />
-                                    <text x={cx + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * scaleFactor + 15} y={cy - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * scaleFactor - 15} fill={theme.supportOrange} fontSize="16" fontWeight="bold">R = {vectorResult.rMag.toFixed(2)}</text>
+                                    <line 
+                                      x1={cx} y1={cy} 
+                                      x2={cx + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * scaleFactor} 
+                                      y2={cy - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * scaleFactor} 
+                                      stroke={theme.supportOrange} strokeWidth="5" markerEnd="url(#arrowReaction)" 
+                                    />
+                                    <text 
+                                      x={cx + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * scaleFactor + 15} 
+                                      y={cy - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * scaleFactor - 15} 
+                                      fill={theme.supportOrange} fontSize="16" fontWeight="bold"
+                                    >
+                                      R = {vectorResult.rMag.toFixed(2)}
+                                    </text>
                                   </g>
                               )}
                             </>
@@ -420,12 +1171,14 @@ function App() {
                    </svg>
                  </div>
               </div>
+
               <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
                  <div style={{ flex: '1', backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                       <h4 style={{ margin: 0, fontSize: '1.1rem' }}>Force Inputs</h4>
                       <button onClick={addVectorLoad} style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #555', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+ Add Force</button>
                     </div>
+                    
                     {vectorLoads.map((v, index) => (
                        <div key={v.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px', paddingBottom: '10px', borderBottom: `1px dashed ${theme.border}`, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 'bold', width: '30px' }}>F{index + 1}:</span>
@@ -434,22 +1187,29 @@ function App() {
                           <label>Angle:</label>
                           <input type="number" value={v.angle} onChange={(e) => updateVectorLoad(v.id, 'angle', e.target.value)} style={{ width: '60px', padding: '6px', borderRadius: '4px' }} />
                           <select value={v.quadrant} onChange={(e) => updateVectorLoad(v.id, 'quadrant', parseInt(e.target.value))} style={{ padding: '6px', borderRadius: '4px' }}>
-                              <option value={1}>Q1 (บนขวา)</option><option value={2}>Q2 (บนซ้าย)</option><option value={3}>Q3 (ล่างซ้าย)</option><option value={4}>Q4 (ล่างขวา)</option>
+                              <option value={1}>Q1 (บนขวา)</option>
+                              <option value={2}>Q2 (บนซ้าย)</option>
+                              <option value={3}>Q3 (ล่างซ้าย)</option>
+                              <option value={4}>Q4 (ล่างขวา)</option>
                           </select>
                           <select value={v.refAxis} onChange={(e) => updateVectorLoad(v.id, 'refAxis', e.target.value)} style={{ padding: '6px', borderRadius: '4px' }}>
-                              <option value="x">เทียบแกน X</option><option value="y">เทียบแกน Y</option>
+                              <option value="x">เทียบแกน X</option>
+                              <option value="y">เทียบแกน Y</option>
                           </select>
                           <select value={v.direction} onChange={(e) => updateVectorLoad(v.id, 'direction', e.target.value)} style={{ padding: '6px', borderRadius: '4px' }}>
-                              <option value="out">พุ่งออก (Out)</option><option value="in">พุ่งเข้า (In)</option>
+                              <option value="out">พุ่งออก (Out)</option>
+                              <option value="in">พุ่งเข้า (In)</option>
                           </select>
                           <button onClick={() => removeVectorLoad(v.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #555', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
                        </div>
                     ))}
                  </div>
               </div>
+
               <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                 <button onClick={analyzeVectors} disabled={vectorLoads.length === 0} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: vectorLoads.length === 0 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: vectorLoads.length === 0 ? 'not-allowed' : 'pointer' }}>Resolve Force Vectors</button>
               </div>
+
               {vectorResult && (
                  <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
                     <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Vector Component Analysis (Calculation Steps)</h4>
@@ -496,12 +1256,14 @@ function App() {
                   <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: CHU-CALC Static Evaluation</p>
                 </div>
               </div>
+
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
                 <button onClick={() => loadBeamPreset('simply-supported')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Simply Supported (Point Load)</button>
                 <button onClick={() => loadBeamPreset('overhanging')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Overhanging Beam (UDL + Point)</button>
                 <button onClick={() => loadBeamPreset('cantilever')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Cantilever Beam</button>
               </div>
+
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                   <h3 style={{ margin: 0, color: theme.textMain, fontSize: '1.1rem' }}>1. Structural Beam Model & Loading</h3>
@@ -516,6 +1278,7 @@ function App() {
                   <line x1="50" y1="140" x2="950" y2="140" stroke="#444" strokeWidth="1" strokeDasharray="5,5" />
                   <text x="500" y="165" textAnchor="middle" fill="#aaa" fontSize="14">L = {safeBeamLength} m</text>
                   <rect x="50" y="75" width="900" height="15" fill="#444" stroke="#666" strokeWidth="2" />
+                  
                   {beamSupports.map(sup => {
                     const label = getBeamNodeLabel(sup.id);
                     return (
@@ -526,6 +1289,7 @@ function App() {
                       </g>
                     )
                   })}
+                  
                   {beamLoads.map(load => {
                     if (load.type === 'point') {
                       return (
@@ -549,6 +1313,7 @@ function App() {
                   })}
                 </svg>
               </div>
+
               {beamReactions.length > 0 && (
                 <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
                   <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
@@ -572,15 +1337,41 @@ function App() {
                         </g>
                       );
                     })}
+                    
+                    {beamLoads.map(load => {
+                      if (load.type === 'point') {
+                        return (
+                          <g key={`fbd-load-${load.id}`}>
+                            <line x1={getSvgX(load.x)} y1="15" x2={getSvgX(load.x)} y2="60" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                            <text x={getSvgX(load.x)} y="10" textAnchor="middle" fontSize="12" fill={theme.accent} fontWeight="bold">{load.magnitude} {forceUnit}</text>
+                          </g>
+                        );
+                      } else if (load.type === 'moment') {
+                        const mx = getSvgX(load.x);
+                        const isCW = load.direction === 'cw';
+                        return (
+                          <g key={`fbd-load-${load.id}`}>
+                            <path d={isCW ? `M ${mx-20} 30 A 20 20 0 0 1 ${mx+20} 30` : `M ${mx+20} 30 A 20 20 0 0 0 ${mx-20} 30`} fill="none" stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                            <text x={mx} y="15" textAnchor="middle" fontSize="12" fill={theme.accent} fontWeight="bold">{load.magnitude} {forceUnit}.m</text>
+                          </g>
+                        );
+                      } else if (load.type === 'distributed') {
+                         return renderDistributedLoadArrows(getSvgX(load.start_x), 65, getSvgX(load.end_x), 65, 0, load.magnitude);
+                      }
+                      return null;
+                    })}
                   </svg>
                 </div>
               )}
+
               {chartData.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                  
                   <div style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#fff', fontSize: '0.95rem', fontFamily: 'monospace', fontWeight: 'bold' }}>
                      <span>|V| max = {maxAbsoluteShear.toFixed(2)} {forceUnit}</span>
                      <span>|M| max = {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m</span>
                   </div>
+
                   <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
                     <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>3. Shear Force Diagram (SFD)</h4>
                     <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
@@ -591,10 +1382,17 @@ function App() {
                           <YAxis tickFormatter={formatYAxis} stroke="#888" />
                           <Tooltip contentStyle={{ backgroundColor: '#222', borderColor: '#444', color: '#fff' }} />
                           <Area type="stepAfter" dataKey="shear" stroke={theme.accent} strokeWidth={2} fill="#252525" fillOpacity={0.8} />
+                          {shearExtremes.max && (
+                            <ReferenceDot x={shearExtremes.max.x} y={shearExtremes.max.shear} r={4} fill={theme.accent} stroke="#fff" label={{ value: 'Max: ' + shearExtremes.max.shear.toFixed(2), position: 'top', fill: '#fff', fontSize: 12, fontWeight: 'bold' }} />
+                          )}
+                          {shearExtremes.min && shearExtremes.min.shear !== shearExtremes.max?.shear && (
+                            <ReferenceDot x={shearExtremes.min.x} y={shearExtremes.min.shear} r={4} fill={theme.accent} stroke="#fff" label={{ value: 'Min: ' + shearExtremes.min.shear.toFixed(2), position: 'bottom', fill: '#fff', fontSize: 12, fontWeight: 'bold' }} />
+                          )}
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
+                  
                   <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
                     <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>4. Bending Moment Diagram (BMD)</h4>
                     <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
@@ -605,12 +1403,98 @@ function App() {
                           <YAxis tickFormatter={formatYAxis} stroke="#888" />
                           <Tooltip contentStyle={{ backgroundColor: '#222', borderColor: '#444', color: '#fff' }} />
                           <Area type="linear" dataKey="moment" stroke={theme.supportOrange} strokeWidth={2} fill="#252525" fillOpacity={0.8} />
+                          {momentExtremes.max && (
+                            <ReferenceDot x={momentExtremes.max.x} y={momentExtremes.max.moment} r={4} fill={theme.supportOrange} stroke="#fff" label={{ value: 'Max: ' + momentExtremes.max.moment.toFixed(2), position: 'top', fill: '#fff', fontSize: 12, fontWeight: 'bold' }} />
+                          )}
+                          {momentExtremes.min && momentExtremes.min.moment !== momentExtremes.max?.moment && (
+                            <ReferenceDot x={momentExtremes.min.x} y={momentExtremes.min.moment} r={4} fill={theme.supportOrange} stroke="#fff" label={{ value: 'Min: ' + momentExtremes.min.moment.toFixed(2), position: 'bottom', fill: '#fff', fontSize: 12, fontWeight: 'bold' }} />
+                          )}
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
                   </div>
+
+                  <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
+                    <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>Equilibrium Reactions & Calculations</h4>
+                    <div className="print-expand" style={{ backgroundColor: '#151515', padding: '10px', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace', maxHeight: '150px', overflowY: 'auto', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
+                      {beamSteps.map((step, i) => <div key={i} style={{ marginBottom: '4px' }}>{step}</div>)}
+                    </div>
+                  </div>
                 </div>
               )}
+
+              <div style={{ display: 'flex', gap: '15px', marginTop: '20px', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1.3', backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <h4 style={{ margin: 0, fontSize: '1rem' }}>Beam Length & Supports</h4>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button onClick={handleUndoBeam} disabled={beamHistory.length === 0} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '4px 10px', borderRadius: '4px', cursor: beamHistory.length===0?'not-allowed':'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>Undo</button>
+                      <button onClick={addBeamSupport} style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #555', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>+ Support</button>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: '10px' }}><label>Length (m): </label><input type="number" value={beamLength} onChange={(e) => setBeamLength(e.target.value)} style={inputStyle} /></div>
+                  
+                  {beamSupports.map(sup => (
+                    <div key={sup.id} style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px', paddingBottom: '8px', borderBottom: `1px dashed ${theme.border}` }}>
+                      <select value={sup.type} onChange={(e) => updateBeamSupport(sup.id, 'type', e.target.value)} style={{ padding: '4px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
+                        <option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option><option value="free">Free</option>
+                      </select>
+                      <select value={sup.direction || 'horizontal'} onChange={(e) => updateBeamSupport(sup.id, 'direction', e.target.value)} style={{ padding: '4px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
+                        <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
+                      </select>
+                      <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>x (m):</label>
+                      <input type="number" value={sup.x} onChange={(e) => updateBeamSupport(sup.id, 'x', Number(e.target.value))} style={{ width: '60px', padding: '4px' }} />
+                      <button onClick={() => removeBeamSupport(sup.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>Del</button>
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ flex: '1.4', backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <h4 style={{ margin: 0, fontSize: '1rem' }}>Load Configuration</h4>
+                    <div>
+                      <button onClick={addBeamMomentLoad} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem', marginRight: '4px' }}>+ Moment</button>
+                      <button onClick={addBeamPointLoad} style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #555', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem', marginRight: '4px' }}>+ Point</button>
+                      <button onClick={addBeamDistLoad} style={{ backgroundColor: '#444', color: '#fff', border: '1px solid #666', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>+ UDL</button>
+                    </div>
+                  </div>
+                  {beamLoads.map(load => (
+                    <div key={load.id} style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: `1px dashed ${theme.border}`, fontSize: '0.85rem' }}>
+                      {load.type === 'point' ? (
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 'bold', color: theme.accent }}>Point</span>
+                          <label>P:</label><input type="number" value={load.magnitude} onChange={(e) => updateBeamLoad(load.id, 'magnitude', Number(e.target.value))} style={{ width: '60px', padding: '2px' }} />
+                          <label>x:</label><input type="number" value={load.x} onChange={(e) => updateBeamLoad(load.id, 'x', Number(e.target.value))} style={{ width: '60px', padding: '2px' }} />
+                          <button onClick={() => removeBeamLoad(load.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
+                        </div>
+                      ) : load.type === 'moment' ? (
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <span style={{ fontWeight: 'bold', color: theme.accent }}>Moment</span>
+                          <label>M:</label><input type="number" value={load.magnitude} onChange={(e) => updateBeamLoad(load.id, 'magnitude', Number(e.target.value))} style={{ width: '60px', padding: '2px' }} />
+                          <select value={load.direction || 'cw'} onChange={(e) => updateBeamLoad(load.id, 'direction', e.target.value)} style={{ padding: '2px', fontFamily: '"Times New Roman", Times, serif' }}>
+                            <option value="cw">CW ↻</option>
+                            <option value="ccw">CCW ↺</option>
+                          </select>
+                          <label>x:</label><input type="number" value={load.x} onChange={(e) => updateBeamLoad(load.id, 'x', Number(e.target.value))} style={{ width: '60px', padding: '2px' }} />
+                          <button onClick={() => removeBeamLoad(load.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 'bold', color: theme.udlOrange }}>UDL</span>
+                          <label>w:</label><input type="number" value={load.magnitude} onChange={(e) => updateBeamLoad(load.id, 'magnitude', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
+                          <label>Start:</label><input type="number" value={load.start_x} onChange={(e) => updateBeamLoad(load.id, 'start_x', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
+                          <label>End:</label><input type="number" value={load.end_x} onChange={(e) => updateBeamLoad(load.id, 'end_x', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
+                          <button onClick={() => removeBeamLoad(load.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <button onClick={analyzeBeam} style={{ padding: '14px 24px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer' }}>Analyze Beam</button>
+                </div>
+              </div>
             </div>
           )}
 
@@ -623,28 +1507,71 @@ function App() {
                   <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: CHU-CALC Advanced Framework Evaluation</p>
                 </div>
               </div>
+
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
                 <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Pratt Truss</button>
                 <button onClick={() => loadTrussPreset('warren')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Warren Truss</button>
               </div>
+
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A' }}>
                 <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px' }}>Undo</button>
                     <button onClick={clearTrussCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
                   </div>
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
+                      <select value={gridScale} onChange={(e) => setGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
+                        {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0].map(v => <option key={v} value={v}>{v.toFixed(1)}m</option>)}
+                      </select>
+                    </label>
+                    <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Unit: 
+                      <select value={trussUnit} onChange={(e) => setTrussUnit(e.target.value)} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
+                        <option value="N">N</option><option value="kN">kN</option><option value="Ton">Ton</option>
+                      </select>
+                    </label>
+                  </div>
                 </div>
+
                 <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#151515', display: 'flex', justifyContent: 'center' }}>
                   <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#151515' }}>
                     <defs>
                       <pattern id="gridT" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
                     </defs>
                     <rect width="100%" height="100%" fill="url(#gridT)" />
+                    {renderDimensions(nodes, gridScale)}
                     {elements.map(el => {
                       const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
                       if (!n1 || !n2) return null;
                       return <line key={el.id} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="4" strokeLinecap="round" />
+                    })}
+                    {Object.entries(trussSupports).map(([nId, supData]) => {
+                      const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                      return (
+                        <g key={`sup-${nId}`}>
+                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
+                        </g>
+                      )
+                    })}
+                    {Object.entries(trussLoads).map(([nId, force]) => {
+                      const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                      return (
+                        <g key={`load-${nId}`}>
+                          {Number(force.fy) !== 0 && force.fy !== undefined && (
+                            <>
+                              <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                              <text x={node.x + 12} y={node.y - 25} fill={theme.accent} fontSize="13" fontWeight="bold">{force.fy} {trussUnit}</text>
+                            </>
+                          )}
+                          {Number(force.fx) !== 0 && force.fx !== undefined && (
+                            <>
+                              <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                              <text x={node.x - 20} y={node.y - 15} fill={theme.accent} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
+                            </>
+                          )}
+                        </g>
+                      )
                     })}
                     {nodes.map(node => (
                       <g key={node.id} style={{ cursor: 'pointer' }}>
@@ -656,10 +1583,140 @@ function App() {
                   </svg>
                 </div>
               </div>
+
+              {nodes.length > 0 && (
+                <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
+                  <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#151515', overflow: 'auto' }}>
+                    
+                    <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#151515' }}>
+                      <defs>
+                        <pattern id="gridT_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
+                      </defs>
+                      <rect width="100%" height="100%" fill="url(#gridT_FBD)" />
+                      
+                      {elements.map(el => {
+                        const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
+                        if (!n1 || !n2) return null;
+                        
+                        const memberName1 = `${n1.name}${n2.name}`;
+                        const memberName2 = `${n2.name}${n1.name}`;
+                        const resMember = trussAnalysisResult?.members?.find(m => m.name === memberName1 || m.name === memberName2);
+                        const isZeroForce = resMember && resMember.status === "Zero-Force";
+
+                        return (
+                          <g key={`t-fbd-el-${el.id}`}>
+                            <line x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={isZeroForce ? '#555' : theme.memberGray} strokeWidth={isZeroForce ? "2.5" : "3.5"} strokeDasharray={isZeroForce ? "4,4" : "none"} strokeLinecap="round" />
+                            {isZeroForce && (
+                              <text x={(n1.x + n2.x)/2} y={(n1.y + n2.y)/2 - 8} fill="#888" fontSize="11" fontWeight="bold" textAnchor="middle">0-Force</text>
+                            )}
+                          </g>
+                        );
+                      })}
+                      {Object.entries(trussSupports).map(([nId, supData]) => {
+                        const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                        const rxn = trussLocalData.rxns[node.id];
+                        const hasRun = Object.keys(trussLocalData.rxns).length > 0;
+                        const fyText = hasRun ? (rxn ? Math.abs(rxn.fy).toFixed(2) : "0.00") : `R_${node.name}y`;
+                        const fxText = hasRun ? (rxn ? Math.abs(rxn.fx).toFixed(2) : "0.00") : `R_${node.name}x`;
+                        const isFyPos = hasRun ? (rxn && rxn.fy >= 0) : true;
+                        const isFxPos = hasRun ? (rxn && rxn.fx >= 0) : true;
+
+                        return (
+                          <g key={`t-fbd-sup-${nId}`}>
+                            {supData.type !== 'free' && (
+                              <>
+                                <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
+                                <text x={node.x + 12} y={isFyPos ? node.y + 30 : node.y - 30} fontSize="12" fill={theme.supportOrange} fontWeight="bold">{fyText}</text>
+                              </>
+                            )}
+                            {(supData.type === 'pin' || supData.type === 'fixed') && (
+                              <>
+                                <line x1={isFxPos ? node.x - 45 : node.x + 45} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
+                                <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill={theme.supportOrange} fontWeight="bold">{fxText}</text>
+                              </>
+                            )}
+                            <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
+                          </g>
+                        );
+                      })}
+                      {Object.entries(trussLoads).map(([nId, force]) => {
+                        const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                        return (
+                           <g key={`t-fbd-load-${nId}`}>
+                            {Number(force.fy) !== 0 && force.fy !== undefined && (
+                              <>
+                                <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                                <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.accent} fontWeight="bold">{force.fy} {trussUnit}</text>
+                              </>
+                            )}
+                            {Number(force.fx) !== 0 && force.fx !== undefined && (
+                              <>
+                                <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                                <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.accent} fontWeight="bold">{force.fx} {trussUnit}</text>
+                              </>
+                            )}
+                          </g>
+                        );
+                      })}
+                      {nodes.map(node => (
+                        <g key={`t-fbd-n-${node.id}`}>
+                          <circle cx={node.x} cy={node.y} r={4} fill="#fff" />
+                          <text x={node.x + 8} y={node.y - 8} fontSize="12" fill="#fff" fontWeight="bold">{node.name}</text>
+                        </g>
+                      ))}
+                    </svg>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', alignItems: 'center' }}>
+                <div style={{ flex: 1, backgroundColor: '#1A1A1A', padding: '12px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
+                  {nodes.find(n => n.id === selectedNodeId) ? (
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                      <strong style={{ color: '#fff' }}>Node {nodes.find(n=>n.id===selectedNodeId).name}:</strong>
+                      <select value={trussSupports[selectedNodeId]?.type || 'none'} onChange={(e) => handleSupportTypeChange(selectedNodeId, e.target.value)} style={{ fontFamily: '"Times New Roman", Times, serif' }}>
+                        <option value="none">Support: None</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option><option value="free">Free</option>
+                      </select>
+                      <select value={trussSupports[selectedNodeId]?.direction || 'horizontal'} onChange={(e) => { saveTrussState(); setTrussSupports(prev => ({ ...prev, [selectedNodeId]: { ...prev[selectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
+                        <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
+                      </select>
+                      <input type="number" placeholder="Fx Load" value={trussLoads[selectedNodeId]?.fx || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fx', e.target.value)} style={{ width: '80px', padding: '4px' }} />
+                      <input type="number" placeholder="Fy Load" value={trussLoads[selectedNodeId]?.fy || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fy', e.target.value)} style={{ width: '80px', padding: '4px' }} />
+                    </div>
+                  ) : <span style={{ fontSize: '0.9rem', color: '#888' }}>Click any node on canvas to configure support & point load.</span>}
+                </div>
+                <button onClick={runTrussAnalysis} disabled={nodes.length < 3} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: nodes.length < 3 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: nodes.length < 3 ? 'not-allowed' : 'pointer' }}>Analyze Truss</button>
+              </div>
+
+              {trussAnalysisResult && (
+                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
+                  <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>3. Static Equilibrium & Support Reaction Steps</h4>
+                  <div style={{ backgroundColor: '#151515', padding: '10px', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
+                    {trussLocalData.steps.map((step, idx) => (
+                      <div key={idx} style={{ marginBottom: '4px' }}>{step}</div>
+                    ))}
+                  </div>
+
+                  <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>4. Truss Equilibrium & Member Forces</h4>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                    <thead><tr style={{ backgroundColor: '#222', borderBottom: `2px solid #555` }}><th style={{ padding: '6px', textAlign: 'left' }}>Member</th><th style={{ padding: '6px', textAlign: 'right' }}>Force ({trussUnit})</th><th style={{ padding: '6px', textAlign: 'center' }}>Status</th></tr></thead>
+                    <tbody>
+                      {trussAnalysisResult.members.map((m, i) => (
+                        <tr key={i} style={{ borderBottom: `1px solid #333`, backgroundColor: m.status === 'Zero-Force' ? '#2c2514' : 'transparent' }}>
+                          <td style={{ padding: '6px' }}>{m.name}</td>
+                          <td style={{ padding: '6px', textAlign: 'right' }}>{Math.abs(m.force).toLocaleString()}</td>
+                          <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: m.status === 'Zero-Force' ? '#D69E2E' : 'inherit' }}>{m.status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 
-          {/* ======================= TAB 3: FRAME ANALYSIS ======================= */}
+          {/* ======================= TAB 3: FRAME ANALYSIS (Statics Only) ======================= */}
           {activeTab === 'frame' && (
             <div className="report-document">
               <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
@@ -668,6 +1725,336 @@ function App() {
                   <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: Equilibrium & Reactions Evaluation</p>
                 </div>
               </div>
+
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
+                <button onClick={() => loadFramePreset('portal')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Portal Frame (UDL on Beam)</button>
+              </div>
+
+              <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A' }}>
+                <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={handleUndoFrame} disabled={frameHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: frameHistory.length===0?'not-allowed':'pointer', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px' }}>Undo</button>
+                    <button onClick={clearFrameCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Unit: 
+                      <select value={fForceUnit} onChange={(e) => setFForceUnit(e.target.value)} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
+                        <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
+                      </select>
+                    </label>
+                    <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
+                      <select value={fGridScale} onChange={(e) => setFGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
+                        {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0].map(v => <option key={v} value={v}>{v.toFixed(1)}m</option>)}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+
+                <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#151515', display: 'flex', justifyContent: 'center' }}>
+                  <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#151515' }}>
+                    <defs>
+                      <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#gridF)" />
+                    {renderDimensions(fNodes, fGridScale)}
+                    
+                    {fElements.map(el => {
+                      const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
+                      if (!n1 || !n2) return null;
+                      const distLoad = fDistLoads[el.id];
+                      const pointLoad = fPointLoadsOnElement[el.id];
+                      const isSelected = fSelectedElementId === el.id;
+
+                      let plX = n1.x, plY = n1.y;
+                      if (pointLoad && pointLoad.x !== undefined) {
+                        const totalLen = Math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2);
+                        const actualLenM = totalLen / PIXELS_PER_GRID * fGridScale;
+                        const ratio = actualLenM > 0 ? Math.min(Math.max(pointLoad.x / actualLenM, 0), 1) : 0;
+                        plX = n1.x + (n2.x - n1.x) * ratio;
+                        plY = n1.y + (n2.y - n1.y) * ratio;
+                      }
+
+                      return (
+                        <g key={el.id} onClick={(e) => handleFrameElementClick(e, el)} style={{ cursor: 'pointer' }}>
+                          <line x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={isSelected ? theme.accent : theme.memberGray} strokeWidth={isSelected ? "6" : "4"} strokeLinecap="round" />
+                          {renderDistributedLoadArrows(n1.x, n1.y, n2.x, n2.y, distLoad?.wx, distLoad?.wy)}
+                          {pointLoad && (
+                            <>
+                              {pointLoad.py && pointLoad.py !== 0 && (
+                                <g>
+                                  <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                                  <text x={plX + 12} y={plY - 20} fill={theme.accent} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
+                                </g>
+                              )}
+                              {pointLoad.px && pointLoad.px !== 0 && (
+                                <g>
+                                  <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                                  <text x={plX - 25} y={plY - 10} fill={theme.accent} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
+                                </g>
+                              )}
+                            </>
+                          )}
+                        </g>
+                      )
+                    })}
+
+                    {Object.entries(fSupports).map(([nId, supData]) => {
+                      const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                      return (
+                        <g key={`sup-${nId}`}>
+                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
+                        </g>
+                      )
+                    })}
+
+                    {Object.entries(fLoads).map(([nId, force]) => {
+                      const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                      return (
+                        <g key={`load-${nId}`}>
+                          {Number(force.fy) !== 0 && (
+                            <>
+                              <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                              <text x={node.x + 12} y={node.y} fill={theme.accent} fontSize="13" fontWeight="bold">Fy = {force.fy} {fForceUnit}</text>
+                            </>
+                          )}
+                          {Number(force.fx) !== 0 && (
+                            <>
+                              <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                              <text x={node.x - 15} y={node.y - 15} fill={theme.accent} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
+                            </>
+                          )}
+                          {Number(force.mz) !== 0 && (
+                            <g>
+                              <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                              <text x={node.x} y={node.y - 45} fill={theme.accent} fontSize="13" fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)} {fForceUnit}.m</text>
+                            </g>
+                          )}
+                        </g>
+                      )
+                    })}
+
+                    {fNodes.map(node => (
+                      <g key={node.id} style={{ cursor: 'pointer' }}>
+                        <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleFrameNodeClick(e, node)} />
+                        <circle cx={node.x} cy={node.y} r={fSelectedNodeId === node.id ? 9 : 6} fill={fSelectedNodeId === node.id ? theme.accent : "#222"} stroke="#fff" strokeWidth="2" style={{ pointerEvents: 'none' }} />
+                        <text x={node.x + 10} y={node.y - 10} fill="#fff" fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
+                      </g>
+                    ))}
+                  </svg>
+                </div>
+              </div>
+
+              {fNodes.length > 0 && frameLocalData.analyzed && (
+                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
+                  <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
+                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#151515', overflow: 'auto' }}>
+                    
+                    <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#151515' }}>
+                      <defs>
+                        <pattern id="gridF_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
+                      </defs>
+                      <rect width="100%" height="100%" fill="url(#gridF_FBD)" />
+                      
+                      {fElements.map(el => {
+                        const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
+                        if (!n1 || !n2) return null;
+                        return <line key={`f-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
+                      })}
+                      
+                      {fElements.map(el => {
+                        const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
+                        if (!n1 || !n2) return null;
+                        const distLoad = fDistLoads[el.id];
+                        const pointLoad = fPointLoadsOnElement[el.id];
+                        
+                        let plX = n1.x, plY = n1.y;
+                        if (pointLoad && pointLoad.x !== undefined) {
+                          const totalLen = Math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2);
+                          const actualLenM = totalLen / PIXELS_PER_GRID * fGridScale;
+                          const ratio = actualLenM > 0 ? Math.min(Math.max(pointLoad.x / actualLenM, 0), 1) : 0;
+                          plX = n1.x + (n2.x - n1.x) * ratio;
+                          plY = n1.y + (n2.y - n1.y) * ratio;
+                        }
+                        
+                        return (
+                          <g key={`fbd-loads-${el.id}`}>
+                            {renderDistributedLoadArrows(n1.x, n1.y, n2.x, n2.y, distLoad?.wx, distLoad?.wy)}
+                            {pointLoad && (
+                              <>
+                                {pointLoad.py && pointLoad.py !== 0 && (
+                                  <g>
+                                    <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                                    <text x={plX + 12} y={plY - 20} fill={theme.accent} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
+                                  </g>
+                                )}
+                                {pointLoad.px && pointLoad.px !== 0 && (
+                                  <g>
+                                    <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                                    <text x={plX - 25} y={plY - 10} fill={theme.accent} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
+                                  </g>
+                                )}
+                              </>
+                            )}
+                          </g>
+                        )
+                      })}
+
+                      {Object.entries(fSupports).map(([nId, supData]) => {
+                        const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                        const rxn = frameLocalData.rxns[node.id];
+                        
+                        const fyText = rxn ? Math.abs(rxn.fy).toFixed(2) : "0.00";
+                        const fxText = rxn ? Math.abs(rxn.fx).toFixed(2) : "0.00";
+                        const mzText = rxn && rxn.mz ? Math.abs(rxn.mz).toFixed(2) : "0.00";
+                        
+                        const isFyPos = rxn ? (rxn.fy >= 0) : true;
+                        const isFxPos = rxn ? (rxn.fx >= 0) : true;
+                        const isMzCW = rxn ? (rxn.mz < 0) : true;
+
+                        return (
+                          <g key={`f-fbd-sup-${nId}`}>
+                            {(supData.type !== 'free') && (
+                              <>
+                                <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
+                                <text x={node.x + 12} y={isFyPos ? node.y + 25 : node.y - 25} fontSize="12" fill={theme.supportOrange} fontWeight="bold">{fyText}</text>
+                              </>
+                            )}
+                            {(supData.type === 'pin' || supData.type === 'fixed') && (
+                              <>
+                                <line x1={isFxPos ? node.x - 40 : node.x + 40} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
+                                <text x={isFxPos ? node.x - 45 : node.x + 50} y={node.y - 8} fontSize="12" fill={theme.supportOrange} fontWeight="bold">{fxText}</text>
+                              </>
+                            )}
+                            {supData.type === 'fixed' && (
+                              <g>
+                                <path d={isMzCW ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
+                                <text x={node.x} y={node.y - 45} fontSize="12" fill={theme.supportOrange} fontWeight="bold" textAnchor="middle">{mzText}</text>
+                              </g>
+                            )}
+                            <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
+                          </g>
+                        );
+                      })}
+                      
+                      {Object.entries(fLoads).map(([nId, force]) => {
+                        const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
+                        return (
+                          <g key={`f-fbd-nload-${nId}`}>
+                            {Number(force.fy) !== 0 && (
+                              <>
+                                <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                                <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.accent} fontWeight="bold">{force.fy} {fForceUnit}</text>
+                              </>
+                            )}
+                            {Number(force.fx) !== 0 && (
+                              <>
+                                <line x1={node.x} y1={node.x - 40} x2={node.x} y2={node.x + 10} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
+                                <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.accent} fontWeight="bold">{force.fx} {fForceUnit}</text>
+                              </>
+                            )}
+                          </g>
+                        );
+                      })}
+                      
+                      {fNodes.map(node => (
+                        <g key={`f-fbd-n-${node.id}`}>
+                          <circle cx={node.x} cy={node.y} r={4} fill="#fff" />
+                          <text x={node.x + 8} y={node.y - 8} fontSize="12" fill="#fff" fontWeight="bold">{node.name}</text>
+                        </g>
+                      ))}
+                    </svg>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
+                {fSelectedNode ? (
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <strong style={{ color: '#fff' }}>Node {fSelectedNode.name}:</strong>
+                    <select value={fSupports[fSelectedNode.id]?.type || 'none'} onChange={(e) => handleFSupportTypeChange(fSelectedNode.id, e.target.value)} style={{ fontFamily: '"Times New Roman", Times, serif' }}>
+                      <option value="none">Support: None</option><option value="fixed">Fixed</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="free">Free</option>
+                    </select>
+                    <select value={fSupports[fSelectedNode.id]?.direction || 'horizontal'} onChange={(e) => { saveFrameState(); setFSupports(prev => ({ ...prev, [fSelectedNodeId]: { ...prev[fSelectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
+                      <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
+                    </select>
+                    <input type="number" placeholder={`Fx (${fForceUnit})`} value={fLoads[fSelectedNode.id]?.fx !== undefined ? fLoads[fSelectedNode.id].fx : ''} onChange={(e) => handleFLoadChange(fSelectedNode.id, 'fx', e.target.value)} style={{ width: '70px', padding: '4px' }} />
+                    <input type="number" placeholder={`Fy (${fForceUnit})`} value={fLoads[fSelectedNode.id]?.fy !== undefined ? fLoads[fSelectedNode.id].fy : ''} onChange={(e) => handleFLoadChange(fSelectedNode.id, 'fy', e.target.value)} style={{ width: '70px', padding: '4px' }} />
+                    
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginLeft: '10px' }}>
+                      <label style={{ fontSize: '0.85rem' }}>Mz:</label>
+                      <input type="number" value={fLoads[fSelectedNode.id]?.mz ? Math.abs(fLoads[fSelectedNode.id].mz) : ''} onChange={(e) => {
+                        const val = Number(e.target.value);
+                        const isCW = (fLoads[fSelectedNode.id]?.mz || 0) < 0;
+                        handleFLoadChange(fSelectedNode.id, 'mz', isCW ? -val : val);
+                      }} style={{ width: '60px', padding: '4px' }} />
+                      <select value={(fLoads[fSelectedNode.id]?.mz || 0) < 0 ? 'cw' : 'ccw'} onChange={(e) => {
+                        const isCW = e.target.value === 'cw';
+                        const absMz = Math.abs(fLoads[fSelectedNode.id]?.mz || 0);
+                        handleFLoadChange(fSelectedNode.id, 'mz', isCW ? -absMz : absMz);
+                      }} style={{ fontSize: '0.8rem', fontFamily: '"Times New Roman", Times, serif' }}>
+                        <option value="cw">CW ↻</option>
+                        <option value="ccw">CCW ↺</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : fSelectedElement ? (
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <strong style={{ color: '#fff' }}>Member Load:</strong>
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.85rem' }}>wx:</label>
+                      <input type="number" placeholder={`${fForceUnit}/m`} value={fDistLoads[fSelectedElement.id]?.wx || ''} onChange={(e) => handleFDistLoadChange(fSelectedElement.id, 'wx', e.target.value)} style={{ width: '75px', padding: '3px' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.85rem' }}>wy:</label>
+                      <input type="number" placeholder={`${fForceUnit}/m`} value={fDistLoads[fSelectedElement.id]?.wy || ''} onChange={(e) => handleFDistLoadChange(fSelectedElement.id, 'wy', e.target.value)} style={{ width: '75px', padding: '3px' }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                      <label style={{ fontSize: '0.85rem' }}>Point P:</label>
+                      <input type="number" placeholder={fForceUnit} value={fPointLoadsOnElement[fSelectedElement.id]?.py !== undefined ? fPointLoadsOnElement[fSelectedElement.id].py : (fPointLoadsOnElement[fSelectedElement.id]?.px !== undefined ? fPointLoadsOnElement[fSelectedElement.id].px : '')} onChange={(e) => {
+                        const val = e.target.value;
+                        const isVertical = !fPointLoadsOnElement[fSelectedElement.id]?.px;
+                        handleElementPointLoadChange(fSelectedElement.id, isVertical ? 'py' : 'px', val);
+                        if (isVertical) handleElementPointLoadChange(fSelectedElement.id, 'px', '');
+                        else handleElementPointLoadChange(fSelectedElement.id, 'py', '');
+                      }} style={{ width: '60px', padding: '3px' }} />
+                      <select onChange={(e) => {
+                        const dir = e.target.value;
+                        const currVal = fPointLoadsOnElement[fSelectedElement.id]?.py || fPointLoadsOnElement[fSelectedElement.id]?.px || 0;
+                        if (dir === 'py') {
+                          handleElementPointLoadHandle(fSelectedElement.id, 'py', currVal);
+                          handleElementPointLoadChange(fSelectedElement.id, 'px', '');
+                        } else {
+                          handleElementPointLoadChange(fSelectedElement.id, 'px', currVal);
+                          handleElementPointLoadChange(fSelectedElement.id, 'py', '');
+                        }
+                      }} style={{ fontSize: '0.8rem', fontFamily: '"Times New Roman", Times, serif' }}>
+                        <option value="py">Vert (Py)</option>
+                        <option value="px">Side (Px)</option>
+                      </select>
+                      <label style={{ fontSize: '0.85rem' }}>at x:</label>
+                      <input type="number" placeholder="m" value={fPointLoadsOnElement[fSelectedElement.id]?.x || ''} onChange={(e) => handleElementPointLoadChange(fSelectedElement.id, 'x', e.target.value)} style={{ width: '50px', padding: '3px' }} />
+                    </div>
+                  </div>
+                ) : (
+                  <span style={{ fontSize: '0.95rem', color: '#888', fontStyle: 'italic' }}>💡 Tip: Click Node for Supports/Point/Moment Loads, or click Member for UDL/Internal Point Loads.</span>
+                )}
+              </div>
+
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <button onClick={runFrameStaticsAnalysis} disabled={fNodes.length < 2} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: fNodes.length < 2 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: fNodes.length < 2 ? 'not-allowed' : 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' }}>Calculate Frame Reactions</button>
+              </div>
+
+              {frameLocalData.analyzed && (
+                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
+                  <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>3. Engineering Statics Calculation Steps</h4>
+                  <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
+                    {frameLocalData.steps.map((step, idx) => (
+                      <div key={idx} style={{ marginBottom: '4px' }}>{step}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
