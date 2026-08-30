@@ -28,22 +28,62 @@ function App() {
   // GLOBAL STATES
   // ==========================================
   const [currentView, setCurrentView] = useState('home') 
-  const [activeTab, setActiveTab] = useState('vectors')
+  const [activeTab, setActiveTab] = useState('particle') // เพิ่ม particle เป็นแท็บแรกของ Statics หรือเลือกสลับได้
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showFormulaModal, setShowFormulaModal] = useState(false)
 
-  // Unit Converter State
-  const [convVal, setConvVal] = useState(1)
-  const [convType, setConvType] = useState('force')
-  const [fromUnit, setFromUnit] = useState('kN')
-  const [toUnit, setToUnit] = useState('N')
-
-  // Recent Projects State (ไอเดียข้อ 3: จำลองโครงสร้างล่าสุด)
+  // Recent Projects State
   const [recentProjects, setRecentProjects] = useState([
-    { id: 1, name: 'Simply Supported Beam (UDL + Point)', type: 'beam', date: 'Today' },
-    { id: 2, name: 'Pratt Truss Analysis', type: 'truss', date: 'Yesterday' },
-    { id: 3, name: 'Portal Frame Reactions', type: 'frame', date: '3 days ago' }
+    { id: 1, name: 'Particle Equilibrium (Ring & Cables)', type: 'particle', date: 'Today' },
+    { id: 2, name: 'Simply Supported Beam (UDL + Point)', type: 'beam', date: 'Yesterday' },
+    { id: 3, name: 'Pratt Truss Analysis', type: 'truss', date: '3 days ago' }
   ])
+
+  // ==========================================
+  // PARTICLE EQUILIBRIUM STATES (CHAPTER 3)
+  // ==========================================
+  const [particleUnit, setParticleUnit] = useState('N')
+  const [particleType, setParticleType] = useState('2d') // '2d' หรือ '3d'
+  // สำหรับ 2D: เชือก 2 เส้นทำมุม theta1 และ theta2 และน้ำหนัก W แขวนลงล่าง
+  const [pLoadW, setPLoadW] = useState(100)
+  const [pAngle1, setPAngle1] = useState(30) // มุมองศาด้านซ้าย
+  const [pAngle2, setPAngle2] = useState(45) // มุมองศาด้านขวา
+  const [particleResult, setParticleResult] = useState(null)
+
+  const analyzeParticle = () => {
+    setIsAnalyzing(true)
+    setTimeout(() => {
+      const w = Number(pLoadW) || 0
+      const th1 = (Number(pAngle1) || 0) * Math.PI / 180
+      const th2 = (Number(pAngle2) || 0) * Math.PI / 180
+
+      // คำนวณแรงตึงเชือก T1 และ T2 จากสมดุลแรง
+      // sum Fx = T2 cos(th2) - T1 cos(th1) = 0  => T2 = T1 (cos th1 / cos th2)
+      // sum Fy = T1 sin(th1) + T2 sin(th2) - W = 0
+      // T1 sin(th1) + T1 (cos th1 / cos th2) sin(th2) = W
+      // T1 [ sin(th1) + cos(th1)*tan(th2) ] = W
+      const denom = Math.sin(th1) + Math.cos(th1) * Math.tan(th2)
+      let t1 = 0, t2 = 0
+      if (Math.abs(denom) > 0.0001) {
+        t1 = w / denom
+        t2 = t1 * (Math.cos(th1) / Math.cos(th2))
+      }
+
+      setParticleResult({
+        T1: t1,
+        T2: t2,
+        W: w,
+        angle1: pAngle1,
+        angle2: pAngle2,
+        steps: [
+          `[Step 1] กำหนดสมดุลตามแนวแกน X (∑Fx = 0): \n➔ T₂ cos(${pAngle2}°) - T₁ cos(${pAngle1}°) = 0`,
+          `[Step 2] กำหนดสมดุลตามแนวแกน Y (∑Fy = 0): \n➔ T₁ sin(${pAngle1}°) + T₂ sin(${pAngle2}°) - ${w} ${particleUnit} = 0`,
+          `[Step 3] แก้ระบบสมการหาแรงตึงเชือก: \n➔ T₁ = ${t1.toFixed(2)} ${particleUnit} \n➔ T₂ = ${t2.toFixed(2)} ${particleUnit}`
+        ]
+      })
+      setIsAnalyzing(false)
+    }, 600)
+  }
 
   // Dark Theme Palette
   const theme = {
@@ -752,6 +792,7 @@ function App() {
           else if (activeTab === 'truss' && nodes.length >= 3) runTrussAnalysis();
           else if (activeTab === 'frame' && fNodes.length >= 2) runFrameStaticsAnalysis();
           else if (activeTab === 'vectors' && vectorLoads.length > 0) analyzeVectors();
+          else if (activeTab === 'particle') analyzeParticle();
         }
       }
     };
@@ -796,18 +837,11 @@ function App() {
                 ∑Fy = 0 (Vertical Force Equilibrium)<br/>
                 ∑M_z = 0 (Moment Equilibrium about Any Point)
               </p>
-              <h4 style={{ margin: '15px 0 5px 0', color: '#fff' }}>2. Beam Relations</h4>
+              <h4 style={{ margin: '15px 0 5px 0', color: '#fff' }}>2. Particle Equilibrium (Chapter 3)</h4>
               <p style={{ backgroundColor: '#2A2A2A', padding: '10px', borderRadius: '6px', fontFamily: 'monospace', color: '#fff' }}>
-                dV/dx = -w(x)  (Slope of Shear Force Diagram = -Load)<br/>
-                dM/dx = V(x)   (Slope of Bending Moment Diagram = Shear Force)<br/>
-                ΔV = ∫ -w(x) dx<br/>
-                ΔM = ∫ V(x) dx
+                ∑F = 0 ➔ ∑Fx = 0, ∑Fy = 0, ∑Fz = 0<br/>
+                Spring Force: F = ks
               </p>
-              <h4 style={{ margin: '15px 0 5px 0', color: '#fff' }}>3. Zero-Force Member Rules (Trusses)</h4>
-              <ul>
-                <li>Two non-collinear members connect at an unloaded joint ➔ Both are Zero-Force members.</li>
-                <li>Three members meet at a joint with two collinear and no external load ➔ The non-collinear member is Zero-Force.</li>
-              </ul>
             </div>
           </div>
         </div>
@@ -825,7 +859,6 @@ function App() {
       {currentView === 'home' ? (
         <div style={{ width: '100%', maxWidth: '1300px', margin: '40px auto', textAlign: 'center', padding: '0 20px', boxSizing: 'border-box' }}>
           
-          {/* Badge / Status Banner (ไอเดียข้อ 1) */}
           <div style={{ display: 'inline-block', backgroundColor: 'rgba(0, 191, 255, 0.1)', color: '#00BFFF', padding: '6px 16px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', border: '1px solid rgba(0, 191, 255, 0.3)', marginBottom: '20px', letterSpacing: '1px' }}>
             ⚡ Interactive Structural Platform for Engineering Students
           </div>
@@ -833,10 +866,8 @@ function App() {
           <h1 style={{ fontSize: '3rem', color: '#fff', marginBottom: '10px', letterSpacing: '1px' }}>CHU CALC</h1>
           <p style={{ fontSize: '1.2rem', color: '#aaa', marginBottom: '40px' }}>Select an Engineering Subject to Start Analysis</p>
           
-          {/* 4 วิชาหลัก */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginBottom: '50px' }}>
             
-            {/* 1. Engineering Statics (เปิดใช้งานจริง) */}
             <div 
               onClick={() => setCurrentView('statics')}
               style={{ backgroundColor: '#1E1E1E', border: '1px solid #333', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', transition: '0.3s', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', textAlign: 'left' }}
@@ -844,10 +875,9 @@ function App() {
               onMouseLeave={(e) => e.currentTarget.style.borderColor = '#333'}
             >
               <h3 style={{ color: '#00BFFF', fontSize: '1.4rem', marginBottom: '10px' }}>1. Engineering Statics</h3>
-              <p style={{ color: '#aaa', fontSize: '0.95rem' }}>Force vectors, beams, trusses, and frame reaction analysis.</p>
+              <p style={{ color: '#aaa', fontSize: '0.95rem' }}>Particle equilibrium, force vectors, beams, trusses, and frames.</p>
             </div>
 
-            {/* 2. Mechanic of Materials */}
             <div 
               onClick={() => alert("Mechanic of Materials module is coming soon!")}
               style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
@@ -856,7 +886,6 @@ function App() {
               <p style={{ color: '#666', fontSize: '0.95rem' }}>Stress, strain, bending, and torsional deformation analysis.</p>
             </div>
 
-            {/* 3. Theory of Structures */}
             <div 
               onClick={() => alert("Theory of Structures module is coming soon!")}
               style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
@@ -865,7 +894,6 @@ function App() {
               <p style={{ color: '#666', fontSize: '0.95rem' }}>Indeterminate structures, influence lines, and energy methods.</p>
             </div>
 
-            {/* 4. Structural Analysis */}
             <div 
               onClick={() => alert("Structural Analysis module is coming soon!")}
               style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}
@@ -876,7 +904,6 @@ function App() {
 
           </div>
 
-          {/* ส่วนแสดงประวัติหรือโครงสร้างล่าสุด (ไอเดียข้อ 3: Recent Projects / Quick Load) */}
           <div style={{ backgroundColor: '#181818', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '25px', textAlign: 'left' }}>
             <h3 style={{ color: '#fff', fontSize: '1.2rem', marginBottom: '15px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               🕒 Recent Analysis Sessions
@@ -905,7 +932,6 @@ function App() {
         /* ======================= STATICS VIEW: THE CALCULATOR ======================= */
         <div style={{ width: '100%', margin: '0 auto' }}>
           
-          {/* Top Header Navigation with Main Menu Button */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', width: '100%' }}>
             <button 
               onClick={() => setCurrentView('home')} 
@@ -922,13 +948,72 @@ function App() {
             </button>
           </div>
 
-          {/* Structure Selector Tabs */}
+          {/* Structure Selector Tabs (เพิ่ม Particle Equilibrium เข้าไปเป็นแท็บแรกตามบทที่ 3) */}
           <div style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 10, width: '100%' }}>
+            <button onClick={() => setActiveTab('particle')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'particle' ? '#333' : '#1E1E1E', color: '#fff' }}>Particle Equilibrium</button>
             <button onClick={() => setActiveTab('vectors')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'vectors' ? '#333' : '#1E1E1E', color: '#fff' }}>Force Vectors</button>
             <button onClick={() => setActiveTab('beam')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'beam' ? '#333' : '#1E1E1E', color: '#fff' }}>Simple Beam</button>
             <button onClick={() => setActiveTab('truss')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'truss' ? '#333' : '#1E1E1E', color: '#fff' }}>Truss Builder</button>
             <button onClick={() => setActiveTab('frame')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'frame' ? '#333' : '#1E1E1E', color: '#fff' }}>Frame Reactions</button>
           </div>
+
+          {/* ======================= TAB -1: PARTICLE EQUILIBRIUM (CHAPTER 3) ======================= */}
+          {activeTab === 'particle' && (
+            <div className="report-document">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
+                <div>
+                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Equilibrium of a Particle (Chapter 3)</h1>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Concurrent Force System & 2D Equilibrium Analysis ($\sum F_x = 0, \sum F_y = 0$)</p>
+                </div>
+              </div>
+
+              <div style={{ backgroundColor: '#1A1A1A', padding: '20px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
+                <h3 style={{ margin: '0 0 15px 0', fontSize: '1.1rem', color: '#fff' }}>Particle Loading & Geometry Inputs</h3>
+                
+                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Weight / Load (W):</label>
+                    <input type="number" value={pLoadW} onChange={(e) => setPLoadW(e.target.value)} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Angle 1 (θ₁°):</label>
+                    <input type="number" value={pAngle1} onChange={(e) => setPAngle1(e.target.value)} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Angle 2 (θ₂°):</label>
+                    <input type="number" value={pAngle2} onChange={(e) => setPAngle2(e.target.value)} style={inputStyle} />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Unit:</label>
+                    <select value={particleUnit} onChange={(e) => setParticleUnit(e.target.value)} style={{ padding: '8px', borderRadius: '6px' }}>
+                      <option value="N">N</option><option value="kN">kN</option><option value="lb">lb</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '20px', textAlign: 'center' }}>
+                  <button onClick={analyzeParticle} style={{ padding: '12px 30px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer' }}>Calculate Particle Equilibrium</button>
+                </div>
+              </div>
+
+              {particleResult && (
+                <div style={{ border: `1px solid ${theme.border}`, padding: '20px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>Equilibrium Analysis & Results</h4>
+                  
+                  <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
+                    {particleResult.steps.map((step, idx) => (
+                      <div key={idx} style={{ marginBottom: '8px' }}>{step}</div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '30px', fontSize: '1.1rem', color: '#fff' }}>
+                    <span><strong>T₁ (Tension 1):</strong> {particleResult.T1.toFixed(2)} {particleUnit}</span>
+                    <span><strong>T₂ (Tension 2):</strong> {particleResult.T2.toFixed(2)} {particleUnit}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ======================= TAB 0: FORCE VECTORS ======================= */}
           {activeTab === 'vectors' && (
@@ -953,7 +1038,6 @@ function App() {
                  
                  <div style={{ width: '100%', overflow: 'hidden', display: 'flex', justifyContent: 'center', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '6px' }}>
                    <svg width="100%" height="400" viewBox="0 0 1000 600" style={{ display: 'block' }}>
-                      {/* Grid & Axes */}
                       <g opacity="0.3">
                          <line x1="500" y1="0" x2="500" y2="600" stroke="#666" strokeWidth="2" strokeDasharray="5,5" />
                          <line x1="0" y1="300" x2="1000" y2="300" stroke="#666" strokeWidth="2" strokeDasharray="5,5" />
@@ -962,7 +1046,6 @@ function App() {
                       <text x="515" y="30" fill="#fff" fontSize="16" fontWeight="bold">Y</text>
                       <circle cx="500" cy="300" r="5" fill="#fff" />
 
-                      {/* Scale Logic */}
                       {(() => {
                           const cx = 500; const cy = 300;
                           const vMax = vectorResult ? Math.max(...vectorLoads.map(v=>v.magnitude), vectorResult.rMag) : Math.max(10, ...vectorLoads.map(v=>v.magnitude));
@@ -970,7 +1053,6 @@ function App() {
 
                           return (
                             <>
-                              {/* Input Vectors */}
                               {vectorLoads.map((v, i) => {
                                  if (!v.magnitude) return null;
                                  const { drawRad, isOut } = getVectorComponents(v);
@@ -992,7 +1074,6 @@ function App() {
                                  )
                               })}
                               
-                              {/* Resultant Vector */}
                               {vectorResult && vectorResult.rMag > 0.01 && (
                                   <g>
                                     <line 
@@ -1027,30 +1108,24 @@ function App() {
                     {vectorLoads.map((v, index) => (
                        <div key={v.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px', paddingBottom: '10px', borderBottom: `1px dashed ${theme.border}`, flexWrap: 'wrap' }}>
                           <span style={{ fontWeight: 'bold', width: '30px' }}>F{index + 1}:</span>
-                          
                           <label>Mag:</label>
                           <input type="number" value={v.magnitude} onChange={(e) => updateVectorLoad(v.id, 'magnitude', e.target.value)} style={{ width: '70px', padding: '6px', borderRadius: '4px' }} />
-                          
                           <label>Angle:</label>
                           <input type="number" value={v.angle} onChange={(e) => updateVectorLoad(v.id, 'angle', e.target.value)} style={{ width: '60px', padding: '6px', borderRadius: '4px' }} />
-                          
                           <select value={v.quadrant} onChange={(e) => updateVectorLoad(v.id, 'quadrant', parseInt(e.target.value))} style={{ padding: '6px', borderRadius: '4px' }}>
                               <option value={1}>Q1 (บนขวา)</option>
                               <option value={2}>Q2 (บนซ้าย)</option>
                               <option value={3}>Q3 (ล่างซ้าย)</option>
                               <option value={4}>Q4 (ล่างขวา)</option>
                           </select>
-
                           <select value={v.refAxis} onChange={(e) => updateVectorLoad(v.id, 'refAxis', e.target.value)} style={{ padding: '6px', borderRadius: '4px' }}>
                               <option value="x">เทียบแกน X</option>
                               <option value="y">เทียบแกน Y</option>
                           </select>
-
                           <select value={v.direction} onChange={(e) => updateVectorLoad(v.id, 'direction', e.target.value)} style={{ padding: '6px', borderRadius: '4px' }}>
                               <option value="out">พุ่งออก (Out)</option>
                               <option value="in">พุ่งเข้า (In)</option>
                           </select>
-
                           <button onClick={() => removeVectorLoad(v.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #555', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
                        </div>
                     ))}
@@ -1064,7 +1139,6 @@ function App() {
               {vectorResult && (
                  <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
                     <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Vector Component Analysis (Calculation Steps)</h4>
-                    
                     <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, overflowX: 'auto' }}>
                        <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
                          <thead>
@@ -1090,7 +1164,6 @@ function App() {
                          </tbody>
                        </table>
                     </div>
-
                     <div style={{ display: 'flex', gap: '30px', justifyContent: 'flex-start', marginBottom: '15px', color: '#fff', fontSize: '1.1rem' }}>
                         <span><strong>|R| (Resultant):</strong> {vectorResult.rMag.toFixed(2)} {vectorUnit}</span>
                         <span><strong>θ (Angle):</strong> {vectorResult.refAng.toFixed(2)}° <span style={{fontSize: '0.9rem', color: '#aaa'}}>({vectorResult.dirSymbol})</span></span>
@@ -1110,7 +1183,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Presets Bar */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
                 <button onClick={() => loadBeamPreset('simply-supported')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Simply Supported (Point Load)</button>
@@ -1362,7 +1434,6 @@ function App() {
                 </div>
               </div>
 
-              {/* Truss Presets */}
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
                 <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Pratt Truss</button>
