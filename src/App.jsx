@@ -1,1565 +1,1952 @@
-import { useState, useEffect } from 'react'
+import { useMemo, useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts'
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceDot
+} from 'recharts'
 import './App.css'
 
-const formatYAxis = (tickItem) => {
-  if (tickItem === undefined || tickItem === null) return '0';
-  return tickItem >= 10000 || tickItem <= -10000 ? (tickItem / 1000).toFixed(1) + 'k' : tickItem.toLocaleString();
-};
+/*
+  CHU CALC — Engineering Statics
+  Refactored / hardened version
 
-const handlePrintPDF = () => { 
-  window.print(); 
-};
+  Conventions
+  - User-entered force values are converted to kN internally.
+  - User-entered moment values are converted to kN·m internally.
+  - Positive Fx = +X (right)
+  - Positive Fy = +Y (up)
+  - Positive Mz = CCW
+  - SVG screen Y is downward, so visual force arrows are inverted where required.
+  - Truss/Frame geometry: 50 px = selected gridScale metres.
+*/
+
+const PIXELS_PER_GRID = 50
+const EPS = 1e-9
+const API_BASE = 'https://chu-calc-backend.onrender.com'
+
+const theme = {
+  bg: '#121212',
+  cardBg: '#1E1E1E',
+  textMain: '#E0E0E0',
+  primary: '#FFFFFF',
+  accent: '#00BFFF',
+  supportOrange: '#FFA500',
+  border: '#333333',
+  memberGray: '#FFFFFF',
+  lightGray: '#252525',
+}
+
+const FORCE_TO_KN = {
+  N: 0.001,
+  kN: 1,
+  lb: 0.0044482216152605,
+  kip: 4.4482216152605,
+}
+
+const MOMENT_TO_KNM = {
+  'N·m': 0.001,
+  'kN·m': 1,
+  'lb·ft': 0.0013558179483314,
+}
+
+const formatNumber = (value, digits = 2) => {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return '—'
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })
+}
+
+const formatYAxis = (value) => {
+  if (!Number.isFinite(Number(value))) return '0'
+  const n = Number(value)
+  return Math.abs(n) >= 10000 ? `${(n / 1000).toFixed(1)}k` : n.toLocaleString()
+}
+
+const forceToKN = (value, unit) => Number(value || 0) * (FORCE_TO_KN[unit] ?? 1)
+const knToForce = (valueKN, unit) => Number(valueKN || 0) / (FORCE_TO_KN[unit] ?? 1)
+
+const momentToKNm = (value, unit) => Number(value || 0) * (MOMENT_TO_KNM[unit] ?? 1)
+const knmToMoment = (valueKNm, unit) => Number(valueKNm || 0) / (MOMENT_TO_KNM[unit] ?? 1)
+
+const clamp = (v, min, max) => Math.min(Math.max(v, min), max)
+
+const deepClone = (obj) => JSON.parse(JSON.stringify(obj))
+
+const solveLinear3 = (A, b) => {
+  const m = A.map((row, i) => [...row, b[i]])
+
+  for (let col = 0; col < 3; col++) {
+    let pivot = col
+    for (let row = col + 1; row < 3; row++) {
+      if (Math.abs(m[row][col]) > Math.abs(m[pivot][col])) pivot = row
+    }
+    if (Math.abs(m[pivot][col]) < EPS) return null
+    ;[m[col], m[pivot]] = [m[pivot], m[col]]
+
+    const p = m[col][col]
+    for (let j = col; j < 4; j++) m[col][j] /= p
+
+    for (let row = 0; row < 3; row++) {
+      if (row === col) continue
+      const factor = m[row][col]
+      for (let j = col; j < 4; j++) m[row][j] -= factor * m[col][j]
+    }
+  }
+  return [m[0][3], m[1][3], m[2][3]]
+}
+
+const equilibriumResidual = (loads, reactions = []) => {
+  let fx = 0, fy = 0, mz = 0
+  loads.forEach((f) => {
+    fx += f.fx || 0
+    fy += f.fy || 0
+    mz += f.mz || 0
+  })
+  reactions.forEach((f) => {
+    fx += f.fx || 0
+    fy += f.fy || 0
+    mz += f.mz || 0
+  })
+  return { fx, fy, mz }
+}
 
 const getMaxMinObj = (data, key) => {
-  if (!data || data.length === 0) return { max: null, min: null };
-  let max = data[0], min = data[0];
-  data.forEach(d => {
-    if (d[key] > max[key]) max = d;
-    if (d[key] < min[key]) min = d;
-  });
-  return { max, min };
-};
+  if (!data?.length) return { max: null, min: null }
+  return data.reduce(
+    (acc, item) => {
+      if (item[key] > acc.max[key]) acc.max = item
+      if (item[key] < acc.min[key]) acc.min = item
+      return acc
+    },
+    { max: data[0], min: data[0] }
+  )
+}
 
-const PIXELS_PER_GRID = 50;
+const validateFinite = (value, label) => {
+  if (!Number.isFinite(Number(value))) return `${label} must be a valid number.`
+  return null
+}
+
+function RenderSupportSVG({ cx, cy, type, dir = 'horizontal' }) {
+  const color = theme.supportOrange
+  const vertical = dir === 'vertical'
+
+  if (type === 'pin') {
+    return vertical ? (
+      <g>
+        <polygon points={`${cx - 5},${cy} ${cx - 20},${cy - 10} ${cx - 20},${cy + 10}`} fill={color} />
+        <line x1={cx - 20} y1={cy - 15} x2={cx - 20} y2={cy + 15} stroke={color} strokeWidth="2.5" />
+      </g>
+    ) : (
+      <g>
+        <polygon points={`${cx},${cy + 5} ${cx - 10},${cy + 20} ${cx + 10},${cy + 20}`} fill={color} />
+        <line x1={cx - 15} y1={cy + 20} x2={cx + 15} y2={cy + 20} stroke={color} strokeWidth="2.5" />
+      </g>
+    )
+  }
+
+  if (type === 'roller') {
+    return vertical ? (
+      <g>
+        <circle cx={cx - 10} cy={cy} r="6" fill={color} />
+        <line x1={cx - 20} y1={cy - 15} x2={cx - 20} y2={cy + 15} stroke={color} strokeWidth="2.5" />
+      </g>
+    ) : (
+      <g>
+        <circle cx={cx} cy={cy + 10} r="6" fill={color} />
+        <line x1={cx - 15} y1={cy + 18} x2={cx + 15} y2={cy + 18} stroke={color} strokeWidth="2.5" />
+      </g>
+    )
+  }
+
+  if (type === 'fixed') {
+    return vertical
+      ? <rect x={cx - 15} y={cy - 15} width="10" height="30" fill={color} />
+      : <rect x={cx - 15} y={cy + 5} width="30" height="10" fill={color} />
+  }
+
+  return null
+}
 
 function App() {
-  const [currentView, setCurrentView] = useState('home') 
-  const [activeTab, setActiveTab] = useState('particle') 
+  const [currentView, setCurrentView] = useState('home')
+  const [activeTab, setActiveTab] = useState('particle')
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
   const [showFormulaModal, setShowFormulaModal] = useState(false)
 
-  const [convVal, setConvVal] = useState(1)
-  const [convType, setConvType] = useState('force')
-  const [fromUnit, setFromUnit] = useState('kN')
-  const [toUnit, setToUnit] = useState('N')
+  // ============================================================
+  // PARTICLE EQUILIBRIUM
+  // ============================================================
+  const [jointPos, setJointPos] = useState({ x: 500, y: 200 })
+  const [pWeight, setPWeight] = useState(150)
+  const [pAngle1, setPAngle1] = useState(35)
+  const [pAngle2, setPAngle2] = useState(45)
+  const [pUnit, setPUnit] = useState('N')
+  const [particleResult, setParticleResult] = useState(null)
 
-  const [recentProjects, setRecentProjects] = useState([
-    { id: 1, name: 'Particle Equilibrium (Space Telescope)', type: 'particle', date: 'Today' },
-    { id: 2, name: 'Simply Supported Beam (UDL + Point)', type: 'beam', date: 'Yesterday' },
-    { id: 3, name: 'Pratt Truss Analysis', type: 'truss', date: '3 days ago' }
-  ])
+  const analyzeParticle = useCallback(() => {
+    setErrorMessage('')
+    const W = forceToKN(pWeight, pUnit)
+    const a1 = Number(pAngle1)
+    const a2 = Number(pAngle2)
 
-  // ==========================================
-  // PARTICLE EQUILIBRIUM (EXACT USER SPEC)
-  // ==========================================
-  const [jointPos, setJointPos] = useState({ x: 500, y: 200 }); // คลิก 1 ครั้งเปลี่ยนจุด Joint
-  const [pWeight, setPWeight] = useState(150);                  // น้ำหนักกล้องโทรทรรศน์อวกาศ
-  const [pAngle1, setPAngle1] = useState(35);                   // มุมเชือกซ้ายเทียบแกน X
-  const [pAngle2, setPAngle2] = useState(45);                   // มุมเชือกขวาเทียบแกน X
-  const [pUnit, setPUnit] = useState('N');
-  const [particleResult, setParticleResult] = useState(null);
+    if (!(W >= 0)) {
+      setErrorMessage('Particle weight must be zero or positive.')
+      return
+    }
+    if (!(a1 > 0 && a1 < 180 && a2 > 0 && a2 < 180)) {
+      setErrorMessage('For this two-cable model, both cable angles must be between 0° and 180°.')
+      return
+    }
+
+    const denom = Math.sin((a1 + a2) * Math.PI / 180)
+    if (Math.abs(denom) < 1e-10) {
+      setErrorMessage('No unique equilibrium solution: the cable geometry is singular.')
+      setParticleResult(null)
+      return
+    }
+
+    const t1KN = W * Math.cos(a2 * Math.PI / 180) / denom
+    const t2KN = W * Math.cos(a1 * Math.PI / 180) / denom
+
+    if (t1KN < -1e-10 || t2KN < -1e-10) {
+      setErrorMessage('The calculated cable force is negative. This geometry cannot be represented by two tension-only cables.')
+      setParticleResult(null)
+      return
+    }
+
+    const t1 = knToForce(t1KN, pUnit)
+    const t2 = knToForce(t2KN, pUnit)
+    const rx = t1KN * Math.cos(a1 * Math.PI / 180) - t2KN * Math.cos(a2 * Math.PI / 180)
+    const ry = t1KN * Math.sin(a1 * Math.PI / 180) + t2KN * Math.sin(a2 * Math.PI / 180) - W
+
+    setParticleResult({
+      T1: t1,
+      T2: t2,
+      W: Number(pWeight),
+      residualFx: rx,
+      residualFy: ry,
+      steps: [
+        `1) ΣFx = 0`,
+        `   T₁ cos(θ₁) − T₂ cos(θ₂) = 0`,
+        `2) ΣFy = 0`,
+        `   T₁ sin(θ₁) + T₂ sin(θ₂) − W = 0`,
+        `3) T₁ = W cos(θ₂) / sin(θ₁ + θ₂)`,
+        `   T₁ = ${formatNumber(t1)} ${pUnit}`,
+        `4) T₂ = W cos(θ₁) / sin(θ₁ + θ₂)`,
+        `   T₂ = ${formatNumber(t2)} ${pUnit}`,
+        `5) Equilibrium residual: ΣFx = ${formatNumber(knToForce(rx, pUnit), 5)} ${pUnit}, ΣFy = ${formatNumber(knToForce(ry, pUnit), 5)} ${pUnit}`,
+      ],
+    })
+  }, [pWeight, pUnit, pAngle1, pAngle2])
 
   const handleParticleCanvasClick = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setJointPos({ x, y });
-    setParticleResult(null);
-  };
-
-  const analyzeParticleSimple = () => {
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      const w = Number(pWeight) || 0;
-      const th1 = (Number(pAngle1) || 0) * Math.PI / 180;
-      const th2 = (Number(pAngle2) || 0) * Math.PI / 180;
-
-      // สมการสมดุลอนุภาค 2 มิติ: T1 cos(th1) - T2 cos(th2) = 0, T1 sin(th1) + T2 sin(th2) - W = 0
-      const denom = Math.sin(th1) * Math.cos(th2) + Math.cos(th1) * Math.sin(th2);
-      let t1 = 0, t2 = 0;
-      if (Math.abs(denom) > 0.0001) {
-        t1 = (w * Math.cos(th2)) / Math.sin(th1 + th2);
-        t2 = (w * Math.cos(th1)) / Math.sin(th1 + th2);
-      } else {
-        t1 = w / 2; t2 = w / 2;
-      }
-
-      setParticleResult({
-        T1: t1,
-        T2: t2,
-        W: w,
-        steps: [
-          `[Step 1] กำหนดค่าน้ำหนักกล้องโทรทรรศน์อวกาศ W = ${w} ${pUnit}`,
-          `[Step 2] สมดุลตามแนวแกน X (∑Fx = 0): T₂ cos(${pAngle2}°) - T₁ cos(${pAngle1}°) = 0`,
-          `[Step 3] สมดุลตามแนวแกน Y (∑Fy = 0): T₁ sin(${pAngle1}°) + T₂ sin(${pAngle2}°) - ${w} = 0`,
-          `[Step 4] คำนวณแรงตึงเชือก: \n   ➔ แรงตึงเชือกซ้าย (T₁) = ${t1.toFixed(2)} ${pUnit} \n   ➔ แรงตึงเชือกขวา (T₂) = ${t2.toFixed(2)} ${pUnit}`
-        ]
-      });
-      setIsAnalyzing(false);
-    }, 600);
-  };
-
-  // Dark Theme Palette
-  const theme = {
-    bg: '#121212',
-    cardBg: '#1E1E1E',
-    textMain: '#E0E0E0',
-    primary: '#FFFFFF',       
-    accent: '#00BFFF',         
-    supportOrange: '#FFA500', 
-    udlOrange: '#FFA500',
-    border: '#333333',
-    memberGray: '#FFFFFF',    
-    lightGray: '#252525',
-    disabledBg: '#2A2A2A',
-    disabledText: '#666666'
+    const rect = e.currentTarget.getBoundingClientRect()
+    setJointPos({
+      x: clamp(e.clientX - rect.left, 90, 510),
+      y: clamp(e.clientY - rect.top, 80, 260),
+    })
+    setParticleResult(null)
+    setErrorMessage('')
   }
 
-  // ==========================================
-  // SVG RENDER COMPONENTS
-  // ==========================================
-  const RenderSupportSVG = ({ cx, cy, type, dir }) => {
-    const isV = dir === 'vertical';
-    const color = theme.supportOrange;
-    if (type === 'pin') {
-      return isV
-        ? <g><polygon points={`${cx-5},${cy} ${cx-20},${cy-10} ${cx-20},${cy+10}`} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
-        : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx+15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
-    }
-    if (type === 'roller') {
-      return isV
-        ? <g><circle cx={cx-10} cy={cy} r={6} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
-        : <g><circle cx={cx} cy={cy+10} r={6} fill={color} /><line x1={cx-15} y1={cy+18} x2={cx+15} y2={cy+18} stroke={color} strokeWidth="2.5" /></g>;
-    }
-    if (type === 'fixed') {
-      return isV
-        ? <rect x={cx-15} y={cy-15} width="10" height="30" fill={color} />
-        : <rect x={cx-15} y={cy+5} width="30" height="10" fill={color} />;
-    }
-    return null;
-  }
-
-  const renderDimensions = (nodeList, scale) => {
-    if (!nodeList || nodeList.length < 2) return null;
-    const dimMaxX = Math.max(...nodeList.map(n => n.x)); const dimMaxY = Math.max(...nodeList.map(n => n.y));
-    const uniqueX = [...new Set(nodeList.map(n => n.x))].sort((a, b) => a - b); const uniqueY = [...new Set(nodeList.map(n => n.y))].sort((a, b) => a - b);
-    const botY = dimMaxY + 45; const rightX = dimMaxX + 45; 
-    return (
-      <g style={{ pointerEvents: 'none' }}>
-        {uniqueX.map((x, i) => {
-          if (i === uniqueX.length - 1) return null; const nextX = uniqueX[i+1]; const dist = ((nextX - x) / PIXELS_PER_GRID) * scale;
-          if (dist === 0) return null;
-          return (
-            <g key={`hx-${i}`}>
-              <line x1={x} y1={botY} x2={nextX} y2={botY} stroke={theme.textMain} strokeWidth="1.5" />
-              <line x1={x} y1={botY - 8} x2={x} y2={botY + 8} stroke={theme.textMain} strokeWidth="1.5" />
-              <line x1={nextX} y1={botY - 8} x2={nextX} y2={botY + 8} stroke={theme.textMain} strokeWidth="1.5" />
-              <text x={(x + nextX) / 2} y={botY + 20} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">{dist.toFixed(1)} m</text>
-            </g>
-          )
-        })}
-      </g>
-    );
-  };
-
-  const renderDistributedLoadArrows = (x1, y1, x2, y2, wx, wy) => {
-    const elements = [];
-    if ((!wy || wy === 0) && (!wx || wx === 0)) return null;
-    const length = Math.sqrt((x2 - x1)**2 + (y2 - y1)**2);
-    if (length === 0) return null;
-    const numArrows = Math.max(Math.floor(length / 25), 3);
-    const cx = (x1 + x2) / 2; const cy = (y1 + y2) / 2;
-    const unit = activeTab === 'frame' ? fForceUnit : forceUnit;
-    const markerId = "url(#arrowUDL_Orange)";
-
-    if (wy && wy !== 0) {
-      const arrows = []; const dirY = wy > 0 ? 1 : -1;
-      for (let i = 0; i <= numArrows; i++) {
-        const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
-        const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
-        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
-      }
-      elements.push(
-        <g key="wy-group">
-          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
-          {arrows}
-          <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
-        </g>
-      );
-    }
-    return <g style={{ pointerEvents: 'none' }}>{elements}</g>;
-  };
-
-  // ==========================================
-  // 0. FORCE VECTORS STATES
-  // ==========================================
-  const [vectorUnit, setVectorUnit] = useState('kN');
+  // ============================================================
+  // FORCE VECTORS
+  // ============================================================
+  const [vectorUnit, setVectorUnit] = useState('kN')
   const [vectorLoads, setVectorLoads] = useState([
     { id: 1, magnitude: 100, angle: 60, quadrant: 3, refAxis: 'x', direction: 'out' },
-    { id: 2, magnitude: 50, angle: 20, quadrant: 1, refAxis: 'x', direction: 'out' }
-  ]);
-  const [vectorResult, setVectorResult] = useState(null);
+    { id: 2, magnitude: 50, angle: 20, quadrant: 1, refAxis: 'x', direction: 'out' },
+  ])
+  const [vectorResult, setVectorResult] = useState(null)
 
-  const addVectorLoad = () => setVectorLoads([...vectorLoads, { id: Date.now(), magnitude: 50, angle: 0, quadrant: 1, refAxis: 'x', direction: 'out' }]);
-  const updateVectorLoad = (id, field, val) => setVectorLoads(vectorLoads.map(v => v.id === id ? { ...v, [field]: val } : v));
-  const removeVectorLoad = (id) => setVectorLoads(vectorLoads.filter(v => v.id !== id));
+  const getVectorComponents = useCallback((v) => {
+    const a = Number(v.angle)
+    const q = Number(v.quadrant)
+    if (!(a >= 0 && a <= 90)) return null
 
-  const getVectorComponents = (v) => {
-    let baseAngle = Number(v.angle) || 0;
-    let trueAngle = 0;
-    if (v.quadrant === 1) trueAngle = v.refAxis === 'x' ? baseAngle : 90 - baseAngle;
-    else if (v.quadrant === 2) trueAngle = v.refAxis === 'x' ? 180 - baseAngle : 90 + baseAngle;
-    else if (v.quadrant === 3) trueAngle = v.refAxis === 'x' ? 180 + baseAngle : 270 - baseAngle;
-    else if (v.quadrant === 4) trueAngle = v.refAxis === 'x' ? 360 - baseAngle : 270 + baseAngle;
+    let trueAngle
+    if (v.refAxis === 'x') {
+      trueAngle = ({ 1: a, 2: 180 - a, 3: 180 + a, 4: 360 - a })[q]
+    } else {
+      trueAngle = ({ 1: 90 - a, 2: 90 + a, 3: 270 - a, 4: 270 + a })[q]
+    }
+    if (!Number.isFinite(trueAngle)) return null
 
-    const drawRad = (trueAngle * Math.PI) / 180;
-    let forceAngle = trueAngle;
-    if (v.direction === 'in') forceAngle = (trueAngle + 180) % 360;
-    
-    const forceRad = (forceAngle * Math.PI) / 180;
-    const fx = v.magnitude * Math.cos(forceRad);
-    const fy = v.magnitude * Math.sin(forceRad);
-    return { fx, fy, drawRad, isOut: v.direction === 'out' };
-  };
+    const forceAngle = v.direction === 'in' ? (trueAngle + 180) % 360 : trueAngle
+    const rad = forceAngle * Math.PI / 180
+    const magKN = forceToKN(v.magnitude, vectorUnit)
+    return {
+      fxKN: magKN * Math.cos(rad),
+      fyKN: magKN * Math.sin(rad),
+      drawRad: trueAngle * Math.PI / 180,
+      forceAngle,
+      magnitudeKN: magKN,
+    }
+  }, [vectorUnit])
 
   const analyzeVectors = () => {
-    setIsAnalyzing(true);
-    setTimeout(() => {
-      let sumFx = 0, sumFy = 0;
-      const steps = [];
-      vectorLoads.forEach((f, i) => {
-        const { fx, fy, drawRad, isOut } = getVectorComponents(f);
-        sumFx += fx; sumFy += fy;
-        steps.push({ id: f.id, name: `F${i + 1}`, fx: fx, fy: fy, drawRad: drawRad, isOut: isOut, magnitude: f.magnitude });
-      });
-      const rMag = Math.sqrt(sumFx ** 2 + sumFy ** 2);
-      let rAng = (Math.atan2(sumFy, sumFx) * 180) / Math.PI;
-      if (rAng < 0) rAng += 360;
-      const refAng = (Math.atan(Math.abs(sumFy) / (Math.abs(sumFx) || 0.0001)) * 180 / Math.PI);
-      let dirSymbol = '';
-      if (sumFx >= 0 && sumFy >= 0) dirSymbol = '↗ (Q1)';
-      else if (sumFx < 0 && sumFy >= 0) dirSymbol = '↖ (Q2)';
-      else if (sumFx < 0 && sumFy < 0) dirSymbol = '↙ (Q3)';
-      else dirSymbol = '↘ (Q4)';
-      setVectorResult({ sumFx, sumFy, rMag, rAng, refAng, dirSymbol, steps });
-      setIsAnalyzing(false);
-    }, 600);
-  };
+    setErrorMessage('')
+    let sumFxKN = 0, sumFyKN = 0
+    const steps = []
 
-  // ==========================================
-  // 1. BEAM ANALYSIS STATES
-  // ==========================================
+    for (let i = 0; i < vectorLoads.length; i++) {
+      const f = vectorLoads[i]
+      const err = validateFinite(f.magnitude, `F${i + 1} magnitude`)
+      if (err) { setErrorMessage(err); return }
+      const c = getVectorComponents(f)
+      if (!c) {
+        setErrorMessage(`F${i + 1}: reference angle must be between 0° and 90°.`)
+        return
+      }
+      sumFxKN += c.fxKN
+      sumFyKN += c.fyKN
+      steps.push({
+        id: f.id,
+        name: `F${i + 1}`,
+        fx: knToForce(c.fxKN, vectorUnit),
+        fy: knToForce(c.fyKN, vectorUnit),
+        drawRad: c.drawRad,
+        isOut: f.direction === 'out',
+        magnitude: Number(f.magnitude),
+      })
+    }
+
+    const rKN = Math.hypot(sumFxKN, sumFyKN)
+    const angle = (Math.atan2(sumFyKN, sumFxKN) * 180 / Math.PI + 360) % 360
+    const ref = Math.atan2(Math.abs(sumFyKN), Math.abs(sumFxKN)) * 180 / Math.PI
+    const dirSymbol =
+      sumFxKN >= 0 && sumFyKN >= 0 ? '↗ Q1' :
+      sumFxKN < 0 && sumFyKN >= 0 ? '↖ Q2' :
+      sumFxKN < 0 && sumFyKN < 0 ? '↙ Q3' : '↘ Q4'
+
+    setVectorResult({
+      sumFx: knToForce(sumFxKN, vectorUnit),
+      sumFy: knToForce(sumFyKN, vectorUnit),
+      rMag: knToForce(rKN, vectorUnit),
+      rAng: angle,
+      refAng: ref,
+      dirSymbol,
+      steps,
+    })
+  }
+
+  const updateVectorLoad = (id, field, value) => {
+    setVectorLoads(prev => prev.map(v => v.id === id ? { ...v, [field]: value } : v))
+    setVectorResult(null)
+  }
+
+  // ============================================================
+  // BEAM
+  // ============================================================
   const [beamLength, setBeamLength] = useState(4)
-  const [forceUnit, setForceUnit] = useState('kN') 
+  const [forceUnit, setForceUnit] = useState('kN')
   const [beamSupports, setBeamSupports] = useState([
-    { id: 1, type: "pin", x: 0, direction: "horizontal" },
-    { id: 2, type: "roller", x: 4, direction: "horizontal" }
+    { id: 1, type: 'pin', x: 0, direction: 'horizontal' },
+    { id: 2, type: 'roller', x: 4, direction: 'horizontal' },
   ])
   const [beamLoads, setBeamLoads] = useState([
-    { id: 1, type: "point", magnitude: 2, x: 1 },
-    { id: 2, type: "distributed", magnitude: 2, start_x: 2, end_x: 4 }
+    { id: 1, type: 'point', magnitude: 2, x: 1 },
+    { id: 2, type: 'distributed', magnitude: 2, start_x: 2, end_x: 4 },
   ])
   const [chartData, setChartData] = useState([])
   const [beamReactions, setBeamReactions] = useState([])
   const [beamSteps, setBeamSteps] = useState([])
   const [beamHistory, setBeamHistory] = useState([])
 
-  const safeBeamLength = Number(beamLength) || 1; 
-  const getSvgX = (x) => 50 + (Number(x || 0) / safeBeamLength) * 900; 
-  const optimizedTicks = safeBeamLength > 10 
-    ? Array.from({ length: Math.floor(safeBeamLength / 2) + 1 }, (_, i) => i * 2) 
-    : Array.from({ length: Math.floor(safeBeamLength) + 1 }, (_, i) => i);
+  const safeBeamLength = Math.max(Number(beamLength) || 1, 0.01)
+  const getSvgX = x => 50 + (Number(x || 0) / safeBeamLength) * 900
+  const optimizedTicks = useMemo(
+    () => safeBeamLength > 10
+      ? Array.from({ length: Math.floor(safeBeamLength / 2) + 1 }, (_, i) => i * 2)
+      : Array.from({ length: Math.floor(safeBeamLength) + 1 }, (_, i) => i),
+    [safeBeamLength]
+  )
 
-  const sortedBeamSupports = [...beamSupports].sort((a, b) => a.x - b.x);
-  const getBeamNodeLabel = (id) => String.fromCharCode(65 + sortedBeamSupports.findIndex(s => s.id === id));
-  const saveBeamState = () => setBeamHistory(prev => [...prev, { supports: [...beamSupports], loads: [...beamLoads] }])
-  const handleUndoBeam = () => {
-    if (beamHistory.length > 0) {
-      const lastState = beamHistory[beamHistory.length - 1]
-      setBeamSupports(lastState.supports); setBeamLoads(lastState.loads); setBeamHistory(beamHistory.slice(0, -1))
-    }
+  const sortedBeamSupports = useMemo(
+    () => [...beamSupports].sort((a, b) => Number(a.x) - Number(b.x)),
+    [beamSupports]
+  )
+  const getBeamNodeLabel = id => {
+    const idx = sortedBeamSupports.findIndex(s => s.id === id)
+    return idx >= 0 ? String.fromCharCode(65 + idx) : '?'
   }
-  const addBeamSupport = () => { saveBeamState(); setBeamSupports([...beamSupports, { id: Date.now(), type: "roller", x: safeBeamLength / 2, direction: "horizontal" }]) }
-  const removeBeamSupport = (id) => { saveBeamState(); setBeamSupports(beamSupports.filter(s => s.id !== id)) }
-  const updateBeamSupport = (id, field, value) => { saveBeamState(); setBeamSupports(beamSupports.map(s => s.id === id ? { ...s, [field]: value } : s)) }
-  const addBeamPointLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "point", magnitude: 5, x: safeBeamLength / 2 }]) }
-  const addBeamDistLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "distributed", magnitude: 2, start_x: 0, end_x: safeBeamLength / 2 }]) }
-  const addBeamMomentLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "moment", magnitude: 10, x: safeBeamLength / 2, direction: 'cw' }]) }
-  const removeBeamLoad = (id) => { saveBeamState(); setBeamLoads(beamLoads.filter(l => l.id !== id)) }
-  const updateBeamLoad = (id, field, value) => { saveBeamState(); setBeamLoads(beamLoads.map(l => l.id === id ? { ...l, [field]: value } : l)) }
 
-  const loadBeamPreset = (type) => {
+  const saveBeamState = () => {
+    setBeamHistory(prev => [...prev, {
+      length: beamLength,
+      supports: deepClone(beamSupports),
+      loads: deepClone(beamLoads),
+    }].slice(-30))
+  }
+
+  const handleUndoBeam = () => {
+    setBeamHistory(prev => {
+      if (!prev.length) return prev
+      const last = prev[prev.length - 1]
+      setBeamLength(last.length)
+      setBeamSupports(last.supports)
+      setBeamLoads(last.loads)
+      return prev.slice(0, -1)
+    })
+    setChartData([])
+    setBeamReactions([])
+  }
+
+  const updateBeamSupport = (id, field, value) => {
+    saveBeamState()
+    setBeamSupports(prev => prev.map(s => s.id === id ? { ...s, [field]: field === 'x' ? Number(value) : value } : s))
+    setChartData([])
+  }
+
+  const updateBeamLoad = (id, field, value) => {
+    saveBeamState()
+    setBeamLoads(prev => prev.map(l => l.id === id ? { ...l, [field]: field === 'magnitude' || field === 'x' || field === 'start_x' || field === 'end_x' ? Number(value) : value } : l))
+    setChartData([])
+  }
+
+  const loadBeamPreset = type => {
     saveBeamState()
     if (type === 'simply-supported') {
-      setBeamLength(6); setBeamSupports([{ id: 1, type: "pin", x: 0, direction: "horizontal" }, { id: 2, type: "roller", x: 6, direction: "horizontal" }]); setBeamLoads([{ id: 1, type: "point", magnitude: 10, x: 3 }])
+      setBeamLength(6)
+      setBeamSupports([
+        { id: 1, type: 'pin', x: 0, direction: 'horizontal' },
+        { id: 2, type: 'roller', x: 6, direction: 'horizontal' },
+      ])
+      setBeamLoads([{ id: 1, type: 'point', magnitude: 10, x: 3 }])
     } else if (type === 'overhanging') {
-      setBeamLength(8); setBeamSupports([{ id: 1, type: "pin", x: 0, direction: "horizontal" }, { id: 2, type: "roller", x: 6, direction: "horizontal" }]); setBeamLoads([{ id: 1, type: "distributed", magnitude: 4, start_x: 0, end_x: 6 }, { id: 2, type: "point", magnitude: 8, x: 8 }])
+      setBeamLength(8)
+      setBeamSupports([
+        { id: 1, type: 'pin', x: 0, direction: 'horizontal' },
+        { id: 2, type: 'roller', x: 6, direction: 'horizontal' },
+      ])
+      setBeamLoads([
+        { id: 1, type: 'distributed', magnitude: 4, start_x: 0, end_x: 6 },
+        { id: 2, type: 'point', magnitude: 8, x: 8 },
+      ])
     } else if (type === 'cantilever') {
-      setBeamLength(4); setBeamSupports([{ id: 1, type: "fixed", x: 0, direction: "horizontal" }]); setBeamLoads([{ id: 1, type: "distributed", magnitude: 5, start_x: 0, end_x: 4 }])
+      setBeamLength(4)
+      setBeamSupports([{ id: 1, type: 'fixed', x: 0, direction: 'horizontal' }])
+      setBeamLoads([{ id: 1, type: 'distributed', magnitude: 5, start_x: 0, end_x: 4 }])
     }
+    setChartData([])
+    setBeamReactions([])
   }
 
-  const shearExtremes = getMaxMinObj(chartData, 'shear');
-  const momentExtremes = getMaxMinObj(chartData, 'moment');
-  const maxAbsoluteShear = chartData.length > 0 ? Math.max(...chartData.map(d => Math.abs(d.shear || 0))) : 0;
-  const maxAbsoluteMoment = chartData.length > 0 ? Math.max(...chartData.map(d => Math.abs(d.moment || 0))) : 0;
-
   const analyzeBeam = async () => {
-    setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 1500));
+    setErrorMessage('')
+    if (safeBeamLength <= 0) {
+      setErrorMessage('Beam length must be positive.')
+      return
+    }
+
+    for (const s of beamSupports) {
+      if (Number(s.x) < 0 || Number(s.x) > safeBeamLength) {
+        setErrorMessage(`Support position x=${s.x} lies outside the beam.`)
+        return
+      }
+    }
+
+    for (const l of beamLoads) {
+      if (l.type === 'point' || l.type === 'moment') {
+        if (Number(l.x) < 0 || Number(l.x) > safeBeamLength) {
+          setErrorMessage('A point load or moment is outside the beam.')
+          return
+        }
+      }
+      if (l.type === 'distributed') {
+        if (Number(l.start_x) < 0 || Number(l.end_x) > safeBeamLength || Number(l.end_x) <= Number(l.start_x)) {
+          setErrorMessage('UDL range is invalid.')
+          return
+        }
+      }
+    }
+
+    setIsAnalyzing(true)
     try {
       const payload = {
         beam_length: safeBeamLength,
         supports: beamSupports.map(s => ({ ...s, x: Number(s.x) })),
         loads: beamLoads.map(l => {
-          if (l.type === 'point') return { type: "point", magnitude: Number(l.magnitude), x: Number(l.x) }
-          if (l.type === 'moment') return { type: "moment", magnitude: Number(l.magnitude), x: Number(l.x), direction: l.direction }
-          return { type: "distributed", magnitude: Number(l.magnitude), start_x: Number(l.start_x), end_x: Number(l.end_x) }
+          if (l.type === 'point') {
+            return { type: 'point', magnitude: forceToKN(l.magnitude, forceUnit), x: Number(l.x) }
+          }
+          if (l.type === 'moment') {
+            return {
+              type: 'moment',
+              magnitude: momentToKNm(l.magnitude, 'kN·m'),
+              x: Number(l.x),
+              direction: l.direction,
+            }
+          }
+          return {
+            type: 'distributed',
+            magnitude: forceToKN(l.magnitude, forceUnit),
+            start_x: Number(l.start_x),
+            end_x: Number(l.end_x),
+          }
         }),
-        ei: null, unit: forceUnit, analysis_type: "determinate"
-      };
-      
-      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
-      
-      if (!response.data || !response.data.diagram_data || !response.data.diagram_data.x) {
-         throw new Error("Invalid response from server");
+        ei: null,
+        unit: 'kN',
+        analysis_type: 'determinate',
       }
 
-      const data = response.data.diagram_data;
-      const formattedData = data.x.map((xValue, index) => {
-        return { x: xValue, shear: data.shear[index], moment: data.moment[index] };
-      });
+      const response = await axios.post(`${API_BASE}/api/analyze`, payload)
+      if (!response.data?.diagram_data?.x) throw new Error('Invalid response from beam solver.')
 
-      setChartData(formattedData);
-      setBeamReactions(response.data.reactions || []);
-      setBeamSteps(response.data.steps || []);
-    } catch (error) {
-      console.error("Analysis Error:", error);
-      alert("Calculation Error! Please check your supports and loads to ensure stability.");
+      const data = response.data.diagram_data
+      const formatted = data.x.map((x, i) => ({
+        x,
+        shear: data.shear?.[i] ?? 0,
+        moment: data.moment?.[i] ?? 0,
+      }))
+
+      setChartData(formatted)
+
+      // Backend reactions are assumed to be kN. Convert only for display.
+      const reactions = (response.data.reactions || []).map(r => ({
+        ...r,
+        forceDisplay: knToForce(r.force_kN ?? r.force ?? 0, forceUnit),
+      }))
+      setBeamReactions(reactions)
+
+      setBeamSteps(response.data.steps || [
+        'Beam analysis completed.',
+        'Internal solver convention: kN and kN·m.',
+      ])
+    } catch (err) {
+      console.error(err)
+      setErrorMessage(err?.response?.data?.detail || err.message || 'Beam calculation failed.')
     } finally {
-      setIsAnalyzing(false);
+      setIsAnalyzing(false)
     }
   }
 
-  // ==========================================
-  // 2. TRUSS BUILDER STATES
-  // ==========================================
+  // ============================================================
+  // TRUSS
+  // ============================================================
   const [nodes, setNodes] = useState([])
   const [elements, setElements] = useState([])
   const [selectedNodeId, setSelectedNodeId] = useState(null)
   const [trussUnit, setTrussUnit] = useState('kN')
-  const [gridScale, setGridScale] = useState(1.0) 
+  const [gridScale, setGridScale] = useState(1)
   const [trussSupports, setTrussSupports] = useState({})
   const [trussLoads, setTrussLoads] = useState({})
   const [trussAnalysisResult, setTrussAnalysisResult] = useState(null)
-  const [trussLocalData, setTrussLocalData] = useState({ steps: [], rxns: {} })
+  const [trussLocalData, setTrussLocalData] = useState({ steps: [], rxns: {}, analyzed: false })
   const [trussHistory, setTrussHistory] = useState([])
 
-  const saveTrussState = () => setTrussHistory(prev => [...prev, { nodes: [...nodes], elements: [...elements], supports: {...trussSupports}, loads: {...trussLoads} }])
+  const saveTrussState = () => {
+    setTrussHistory(prev => [...prev, {
+      nodes: deepClone(nodes),
+      elements: deepClone(elements),
+      supports: deepClone(trussSupports),
+      loads: deepClone(trussLoads),
+    }].slice(-30))
+  }
 
   const handleUndoTruss = () => {
-    if (trussHistory.length > 0) {
-      const lastState = trussHistory[trussHistory.length - 1]
-      setNodes(lastState.nodes)
-      setElements(lastState.elements)
-      setTrussSupports(lastState.supports)
-      setTrussLoads(lastState.loads)
-      setSelectedNodeId(null)
-      setTrussHistory(trussHistory.slice(0, -1))
-    }
+    setTrussHistory(prev => {
+      if (!prev.length) return prev
+      const last = prev[prev.length - 1]
+      setNodes(last.nodes)
+      setElements(last.elements)
+      setTrussSupports(last.supports)
+      setTrussLoads(last.loads)
+      return prev.slice(0, -1)
+    })
+    setTrussAnalysisResult(null)
+    setTrussLocalData({ steps: [], rxns: {}, analyzed: false })
   }
 
   const handleTrussNodeClick = (e, node) => {
-    e.stopPropagation(); 
-    if (selectedNodeId === node.id) { setSelectedNodeId(null);
-    } else if (selectedNodeId) {
-      const isDup = elements.some(el => (el.n1 === selectedNodeId && el.n2 === node.id) || (el.n1 === node.id && el.n2 === selectedNodeId));
-      if (!isDup) { saveTrussState(); setElements([...elements, { id: Date.now(), n1: selectedNodeId, n2: node.id }]); }
-      setSelectedNodeId(node.id); 
-    } else { setSelectedNodeId(node.id); }
-  };
-
-  const handleTrussCanvasClick = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
-    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
-    const clickedExistingNode = nodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
-    if (clickedExistingNode) {
-      if (selectedNodeId && selectedNodeId !== clickedExistingNode.id) {
-        const isDup = elements.some(el => (el.n1 === selectedNodeId && el.n2 === clickedExistingNode.id) || (el.n1 === clickedExistingNode.id && el.n2 === selectedNodeId));
-        if (!isDup) { saveTrussState(); setElements([...elements, { id: Date.now(), n1: selectedNodeId, n2: clickedExistingNode.id }]); }
-      }
-      setSelectedNodeId(clickedExistingNode.id); return;
+    e.stopPropagation()
+    if (selectedNodeId === node.id) {
+      setSelectedNodeId(null)
+      return
     }
-    const existingNode = nodes.find(n => n.x === x && n.y === y);
-    if (!existingNode) {
-      saveTrussState();
-      const newNodeId = Date.now();
-      const nodeName = nodes.length < 26 ? String.fromCharCode(65 + nodes.length) : `N${nodes.length}`;
-      setNodes([...nodes, { id: newNodeId, name: nodeName, x, y }]);
-      if (selectedNodeId) setElements([...elements, { id: Date.now() + 1, n1: selectedNodeId, n2: newNodeId }]);
-      setSelectedNodeId(newNodeId);
-    } else { setSelectedNodeId(null); }
+    if (selectedNodeId) {
+      const duplicate = elements.some(el =>
+        (el.n1 === selectedNodeId && el.n2 === node.id) ||
+        (el.n1 === node.id && el.n2 === selectedNodeId)
+      )
+      if (!duplicate && selectedNodeId !== node.id) {
+        saveTrussState()
+        setElements(prev => [...prev, { id: Date.now(), n1: selectedNodeId, n2: node.id }])
+      }
+    }
+    setSelectedNodeId(node.id)
+  }
+
+  const handleTrussCanvasClick = e => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const rawX = e.clientX - rect.left
+    const rawY = e.clientY - rect.top
+    const existing = nodes.find(n => Math.hypot(n.x - rawX, n.y - rawY) < 20)
+    if (existing) {
+      handleTrussNodeClick(e, existing)
+      return
+    }
+
+    const x = Math.round(rawX / PIXELS_PER_GRID) * PIXELS_PER_GRID
+    const y = Math.round(rawY / PIXELS_PER_GRID) * PIXELS_PER_GRID
+    if (x < 25 || x > 1375 || y < 25 || y > 575) return
+
+    saveTrussState()
+    const id = Date.now()
+    const name = nodes.length < 26 ? String.fromCharCode(65 + nodes.length) : `N${nodes.length}`
+    setNodes(prev => [...prev, { id, name, x, y }])
+    if (selectedNodeId) {
+      setElements(prev => [...prev, { id: Date.now() + 1, n1: selectedNodeId, n2: id }])
+    }
+    setSelectedNodeId(id)
   }
 
   const handleSupportTypeChange = (nodeId, type) => {
-    saveTrussState();
+    saveTrussState()
     setTrussSupports(prev => {
-      const ns = { ...prev };
-      if (type === 'none' || type === 'free') delete ns[nodeId];
-      else ns[nodeId] = { ...ns[nodeId], type, direction: ns[nodeId]?.direction || 'horizontal' };
-      return ns;
-    });
+      const next = { ...prev }
+      if (type === 'none' || type === 'free') delete next[nodeId]
+      else next[nodeId] = { ...(next[nodeId] || {}), type, direction: next[nodeId]?.direction || 'horizontal' }
+      return next
+    })
   }
 
   const handleTrussLoadChange = (nodeId, axis, value) => {
-    saveTrussState();
+    saveTrussState()
     setTrussLoads(prev => {
-      const nl = { ...prev };
+      const next = deepClone(prev)
       if (value === '') {
-        if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; }
-      } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; }
-      return nl;
-    });
+        if (next[nodeId]) {
+          delete next[nodeId][axis]
+          if (!Object.keys(next[nodeId]).length) delete next[nodeId]
+        }
+      } else {
+        next[nodeId] = { ...(next[nodeId] || {}), [axis]: Number(value) }
+      }
+      return next
+    })
   }
 
-  const clearTrussCanvas = () => { saveTrussState(); setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
-
-  const loadTrussPreset = (type) => {
+  const clearTrussCanvas = () => {
     saveTrussState()
-    if (type === 'pratt') {
-      const pNodes = [
-        { id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 300, y: 350 }, { id: 3, name: "C", x: 400, y: 350 },
-        { id: 4, name: "D", x: 400, y: 250 }, { id: 5, name: "E", x: 300, y: 250 }, { id: 6, name: "F", x: 200, y: 250 }
-      ]
-      const pElements = [
-        { id: 101, n1: 1, n2: 2 }, { id: 102, n1: 2, n2: 3 }, { id: 103, n1: 6, n2: 5 }, { id: 104, n1: 5, n2: 4 },
-        { id: 105, n1: 1, n2: 6 }, { id: 106, n1: 2, n2: 5 }, { id: 107, n1: 3, n2: 4 }, { id: 108, n1: 1, n2: 5 }, { id: 109, n1: 3, n2: 5 }
-      ]
-      setNodes(pNodes); setElements(pElements);
-      setTrussSupports({ 1: { type: "pin", direction: "horizontal" }, 3: { type: "roller", direction: "horizontal" } });
-      setTrussLoads({ 2: { fy: 15 } });
-    }
+    setNodes([])
+    setElements([])
+    setTrussSupports({})
+    setTrussLoads({})
+    setSelectedNodeId(null)
+    setTrussAnalysisResult(null)
+    setTrussLocalData({ steps: [], rxns: {}, analyzed: false })
+  }
+
+  const loadTrussPreset = () => {
+    saveTrussState()
+    setNodes([
+      { id: 1, name: 'A', x: 200, y: 350 },
+      { id: 2, name: 'B', x: 300, y: 350 },
+      { id: 3, name: 'C', x: 400, y: 350 },
+      { id: 4, name: 'D', x: 400, y: 250 },
+      { id: 5, name: 'E', x: 300, y: 250 },
+      { id: 6, name: 'F', x: 200, y: 250 },
+    ])
+    setElements([
+      { id: 101, n1: 1, n2: 2 }, { id: 102, n1: 2, n2: 3 },
+      { id: 103, n1: 6, n2: 5 }, { id: 104, n1: 5, n2: 4 },
+      { id: 105, n1: 1, n2: 6 }, { id: 106, n1: 2, n2: 5 },
+      { id: 107, n1: 3, n2: 4 }, { id: 108, n1: 1, n2: 5 },
+      { id: 109, n1: 3, n2: 5 },
+    ])
+    setTrussSupports({
+      1: { type: 'pin', direction: 'horizontal' },
+      3: { type: 'roller', direction: 'horizontal' },
+    })
+    setTrussLoads({ 2: { fy: 15 } })
+    setTrussAnalysisResult(null)
+    setTrussLocalData({ steps: [], rxns: {}, analyzed: false })
   }
 
   const autoCleanMesh = (nds, els) => {
-    let generated = [];
-    const getDist = (p1, p2) => Math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2);
-    const isBetween = (p, a, b) => Math.abs(getDist(a, p) + getDist(p, b) - getDist(a, b)) < 0.1;
+    const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y)
+    const between = (p, a, b) => Math.abs(dist(a, p) + dist(p, b) - dist(a, b)) < 0.1
+    const generated = []
+
     els.forEach(el => {
-      const n1 = nds.find(n => n.id === el.n1); const n2 = nds.find(n => n.id === el.n2);
-      if (!n1 || !n2) return;
-      let onSeg = nds.filter(n => n.id !== n1.id && n.id !== n2.id && isBetween(n, n1, n2));
-      if (onSeg.length === 0) { generated.push({ n1: Math.min(n1.id, n2.id), n2: Math.max(n1.id, n2.id) });
-      } else {
-        onSeg.sort((a, b) => getDist(n1, a) - getDist(n1, b));
-        let path = [n1, ...onSeg, n2];
-        for (let i = 0; i < path.length - 1; i++) { generated.push({ n1: Math.min(path[i].id, path[i+1].id), n2: Math.max(path[i].id, path[i+1].id) }); }
+      const a = nds.find(n => n.id === el.n1)
+      const b = nds.find(n => n.id === el.n2)
+      if (!a || !b || dist(a, b) < EPS) return
+
+      const onSegment = nds
+        .filter(n => n.id !== a.id && n.id !== b.id && between(n, a, b))
+        .sort((p, q) => dist(a, p) - dist(a, q))
+
+      const path = [a, ...onSegment, b]
+      for (let i = 0; i < path.length - 1; i++) {
+        const n1 = path[i].id
+        const n2 = path[i + 1].id
+        generated.push({
+          n1: Math.min(n1, n2),
+          n2: Math.max(n1, n2),
+        })
       }
-    });
-    const unique = []; const seen = new Set();
-    generated.forEach((el, index) => {
-      const key = `${el.n1}-${el.n2}`;
-      if (!seen.has(key)) { seen.add(key); unique.push({ id: Date.now() + index, n1: el.n1, n2: el.n2 }); }
-    });
-    return unique;
-  };
+    })
 
-  const runTrussAnalysis = async () => {
-    setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 1500));
-    try {
-      const cleanedElements = autoCleanMesh(nodes, elements);
-      setElements(cleanedElements);
-      const tRxns = {}; const tSteps = [];
-      tSteps.push("=== ENGINEERING STATICS : TRUSS REACTIONS ===");
-      let sumFx = 0; let sumFy = 0;
-      Object.entries(trussLoads).forEach(([id, f]) => { sumFx += Number(f.fx || 0); sumFy -= Number(f.fy || 0); });
-      const sups = Object.entries(trussSupports);
-      if(sups.length > 0) {
-          const pivotId = sups[0][0]; const pivotNode = nodes.find(n => n.id == pivotId); let mPivot = 0;
-          Object.entries(trussLoads).forEach(([id, f]) => {
-              const n = nodes.find(x => x.id == id);
-              const dx = (n.x - pivotNode.x)/PIXELS_PER_GRID * gridScale; const dy = -(n.y - pivotNode.y)/PIXELS_PER_GRID * gridScale;
-              mPivot += (-Number(f.fy||0) * dx) - (Number(f.fx||0) * dy);
-          });
-          let unknowns = 0;
-          sups.forEach(([id, data]) => {
-              if(data.type==='pin') unknowns += 2; if(data.type==='roller') unknowns += 1; if(data.type==='fixed') unknowns += 3;
-          });
-          if (unknowns === 3 && sups.length === 2) {
-              let pinId, rollerId;
-              if(trussSupports[sups[0][0]].type === 'pin') { pinId = sups[0][0]; rollerId = sups[1][0]; }
-              else { pinId = sups[1][0]; rollerId = sups[0][0]; }
-              const pNode = nodes.find(n => n.id == pinId); const rNode = nodes.find(n => n.id == rollerId);
-              let mPin = 0;
-              Object.entries(trussLoads).forEach(([id, f]) => {
-                  const n = nodes.find(x => x.id == id);
-                  const dx = (n.x - pNode.x)/PIXELS_PER_GRID * gridScale; const dy = -(n.y - pNode.y)/PIXELS_PER_GRID * gridScale;
-                  mPin += (-Number(f.fy||0) * dx) - (Number(f.fx||0) * dy);
-              });
-              const dxR = (rNode.x - pNode.x)/PIXELS_PER_GRID * gridScale; let r_roller_y = 0;
-              if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
-              const r_pin_y = -sumFy - r_roller_y; const r_pin_x = -sumFx;
-              tRxns[pinId] = { fx: r_pin_x, fy: r_pin_y }; tRxns[rollerId] = { fx: 0, fy: r_roller_y };
-              tSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${trussUnit}`);
-              tSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${trussUnit}`);
-              tSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${trussUnit}`);
-          } else {
-              tSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate or has non-standard supports.`);
-          }
-      } else { tSteps.push("No supports defined."); }
-      setTrussLocalData({ steps: tSteps, rxns: tRxns });
-
-      const payload = {
-        nodes: nodes.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
-        elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })), 
-        supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: null
-      };
-      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
-      if(!response.data) throw new Error("No Data from Server");
-      setTrussAnalysisResult(response.data);
-    } catch (error) {
-      console.error("Truss Analysis Error:", error); 
-      alert("Analysis Failed! Is your Truss unstable or unconstrained?");
-    } finally { setIsAnalyzing(false); }
+    const seen = new Set()
+    return generated.filter(e => {
+      const key = `${e.n1}-${e.n2}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    }).map((e, i) => ({ ...e, id: Date.now() + i }))
   }
 
-  // ==========================================
-  // 3. FRAME ANALYSIS STATES
-  // ==========================================
+  /*
+    Reaction solver for the common determinate truss case:
+    - exactly 3 scalar reaction unknowns
+    - each reaction is represented by a direction vector
+    - solves [Fx, Fy, M] directly
+  */
+  const calculateTrussReactions = () => {
+    const supportRows = []
+
+    Object.entries(trussSupports).forEach(([id, s]) => {
+      const node = nodes.find(n => String(n.id) === String(id))
+      if (!node) return
+
+      if (s.type === 'pin') {
+        supportRows.push({
+          nodeId: node.id, component: 'fx',
+          ux: 1, uy: 0, x: node.x, y: node.y,
+        })
+        supportRows.push({
+          nodeId: node.id, component: 'fy',
+          ux: 0, uy: 1, x: node.x, y: node.y,
+        })
+      } else if (s.type === 'roller') {
+        const vertical = (s.direction || 'horizontal') === 'horizontal'
+        // horizontal direction means roller reacts vertically, matching the UI symbol.
+        supportRows.push({
+          nodeId: node.id, component: vertical ? 'fy' : 'fx',
+          ux: vertical ? 0 : 1, uy: vertical ? 1 : 0,
+          x: node.x, y: node.y,
+        })
+      }
+    })
+
+    if (supportRows.length !== 3) {
+      return {
+        error: 'This reaction solver requires exactly 3 independent support reaction components.',
+      }
+    }
+
+    let totalFx = 0, totalFy = 0, totalM = 0
+    Object.entries(trussLoads).forEach(([id, f]) => {
+      const node = nodes.find(n => String(n.id) === String(id))
+      if (!node) return
+      const fx = forceToKN(f.fx || 0, trussUnit)
+      const fy = forceToKN(f.fy || 0, trussUnit)
+      const x = (node.x / PIXELS_PER_GRID) * gridScale
+      const y = -(node.y / PIXELS_PER_GRID) * gridScale
+      totalFx += fx
+      totalFy += fy
+      totalM += x * fy - y * fx
+    })
+
+    const A = supportRows.map(r => [
+      r.ux,
+      r.uy,
+      r.x * r.uy - r.y * r.ux,
+    ])
+
+    // Unknown vector is the 3 support components.
+    const b = [-totalFx, -totalFy, -totalM]
+    const sol = solveLinear3(A, b)
+    if (!sol) return { error: 'Support geometry is singular; no unique reaction solution exists.' }
+
+    const rxns = {}
+    supportRows.forEach((r, i) => {
+      if (!rxns[r.nodeId]) rxns[r.nodeId] = { fx: 0, fy: 0 }
+      rxns[r.nodeId][r.component] = knToForce(sol[i], trussUnit)
+    })
+
+    const reactionForces = Object.values(rxns).map(r => ({
+      fx: forceToKN(r.fx, trussUnit),
+      fy: forceToKN(r.fy, trussUnit),
+      mz: 0,
+    }))
+    const residual = equilibriumResidual(
+      Object.entries(trussLoads).map(([id, f]) => ({
+        fx: forceToKN(f.fx || 0, trussUnit),
+        fy: forceToKN(f.fy || 0, trussUnit),
+        mz: 0,
+      })),
+      reactionForces
+    )
+
+    return { rxns, residual, supportRows }
+  }
+
+  const runTrussAnalysis = async () => {
+    setErrorMessage('')
+    if (nodes.length < 2 || elements.length < 1) {
+      setErrorMessage('Create at least two nodes and one member.')
+      return
+    }
+
+    setIsAnalyzing(true)
+    try {
+      const cleanedElements = autoCleanMesh(nodes, elements)
+      setElements(cleanedElements)
+
+      const local = calculateTrussReactions()
+      const steps = ['=== ENGINEERING STATICS : TRUSS REACTIONS ===']
+
+      if (local.error) {
+        steps.push(`⚠ ${local.error}`)
+      } else {
+        const fx = knToForce(local.residual.fx, trussUnit)
+        const fy = knToForce(local.residual.fy, trussUnit)
+        const mz = local.residual.mz
+        steps.push('1) Sign convention: +Fx right, +Fy up, +Mz CCW.')
+        steps.push(`2) ΣFx residual = ${formatNumber(fx, 5)} ${trussUnit}`)
+        steps.push(`3) ΣFy residual = ${formatNumber(fy, 5)} ${trussUnit}`)
+        steps.push(`4) ΣM residual = ${formatNumber(mz, 5)} kN·m`)
+        steps.push('5) Reactions were solved from the three global equilibrium equations.')
+      }
+
+      setTrussLocalData({
+        steps,
+        rxns: local.rxns || {},
+        analyzed: true,
+      })
+
+      const payload = {
+        nodes: nodes.map(n => ({
+          id: n.id, name: n.name,
+          x: (n.x / PIXELS_PER_GRID) * gridScale,
+          y: -(n.y / PIXELS_PER_GRID) * gridScale,
+        })),
+        elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })),
+        supports: trussSupports,
+        loads: Object.fromEntries(Object.entries(trussLoads).map(([id, f]) => [
+          id,
+          {
+            fx: forceToKN(f.fx || 0, trussUnit),
+            fy: forceToKN(f.fy || 0, trussUnit),
+          },
+        ])),
+        unit: 'kN',
+        ei: null,
+      }
+
+      const response = await axios.post(`${API_BASE}/api/analyze-truss`, payload)
+      if (!response.data) throw new Error('No data from truss solver.')
+
+      setTrussAnalysisResult(response.data)
+    } catch (err) {
+      console.error(err)
+      setErrorMessage(err?.response?.data?.detail || err.message || 'Truss analysis failed.')
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  // ============================================================
+  // FRAME — statics reactions only
+  // ============================================================
   const [fNodes, setFNodes] = useState([])
   const [fElements, setFElements] = useState([])
   const [fSelectedNodeId, setFSelectedNodeId] = useState(null)
   const [fSelectedElementId, setFSelectedElementId] = useState(null)
   const [fSupports, setFSupports] = useState({})
-  const [fLoads, setFLoads] = useState({}) 
-  const [fDistLoads, setFDistLoads] = useState({}) 
+  const [fLoads, setFLoads] = useState({})
+  const [fDistLoads, setFDistLoads] = useState({})
   const [fPointLoadsOnElement, setFPointLoadsOnElement] = useState({})
   const [fForceUnit, setFForceUnit] = useState('kN')
-  const [fGridScale, setFGridScale] = useState(1.0)
+  const [fGridScale, setFGridScale] = useState(1)
   const [frameLocalData, setFrameLocalData] = useState({ steps: [], rxns: {}, analyzed: false })
   const [frameHistory, setFrameHistory] = useState([])
 
-  const saveFrameState = () => setFrameHistory(prev => [...prev, { fNodes: [...fNodes], fElements: [...fElements], fSupports: {...fSupports}, fLoads: {...fLoads}, fDistLoads: {...fDistLoads}, fPointLoads: {...fPointLoadsOnElement} }])
+  const saveFrameState = () => {
+    setFrameHistory(prev => [...prev, {
+      nodes: deepClone(fNodes),
+      elements: deepClone(fElements),
+      supports: deepClone(fSupports),
+      loads: deepClone(fLoads),
+      dist: deepClone(fDistLoads),
+      point: deepClone(fPointLoadsOnElement),
+    }].slice(-30))
+  }
 
   const handleUndoFrame = () => {
-    if (frameHistory.length > 0) {
-      const last = frameHistory[frameHistory.length - 1]
-      setFNodes(last.fNodes)
-      setFElements(last.fElements)
-      setFSupports(last.fSupports)
-      setFLoads(last.fLoads)
-      setFDistLoads(last.fDistLoads)
-      setFPointLoadsOnElement(last.fPointLoads)
-      setFSelectedNodeId(null)
-      setFSelectedElementId(null)
-      setFrameHistory(frameHistory.slice(0, -1))
-    }
+    setFrameHistory(prev => {
+      if (!prev.length) return prev
+      const last = prev[prev.length - 1]
+      setFNodes(last.nodes)
+      setFElements(last.elements)
+      setFSupports(last.supports)
+      setFLoads(last.loads)
+      setFDistLoads(last.dist)
+      setFPointLoadsOnElement(last.point)
+      return prev.slice(0, -1)
+    })
+    setFrameLocalData({ steps: [], rxns: {}, analyzed: false })
   }
-
-  const fSelectedNode = fNodes.find(n => n.id === fSelectedNodeId);
-  const fSelectedElement = fElements.find(e => e.id === fSelectedElementId);
 
   const handleFrameNodeClick = (e, node) => {
-    e.stopPropagation(); setFSelectedElementId(null);
-    if (fSelectedNodeId === node.id) { setFSelectedNodeId(null);
-    } else if (fSelectedNodeId) {
-      const isDup = fElements.some(el => (el.n1 === fSelectedNodeId && el.n2 === node.id) || (el.n1 === node.id && el.n2 === fSelectedNodeId));
-      if (!isDup) { saveFrameState(); setFElements([...fElements, { id: Date.now(), n1: fSelectedNodeId, n2: node.id }]); }
-      setFSelectedNodeId(node.id);
-    } else { setFSelectedNodeId(node.id); }
+    e.stopPropagation()
+    setFSelectedElementId(null)
+    if (fSelectedNodeId === node.id) {
+      setFSelectedNodeId(null)
+      return
+    }
+    if (fSelectedNodeId) {
+      const duplicate = fElements.some(el =>
+        (el.n1 === fSelectedNodeId && el.n2 === node.id) ||
+        (el.n1 === node.id && el.n2 === fSelectedNodeId)
+      )
+      if (!duplicate) {
+        saveFrameState()
+        setFElements(prev => [...prev, { id: Date.now(), n1: fSelectedNodeId, n2: node.id }])
+      }
+    }
+    setFSelectedNodeId(node.id)
   }
 
-  const handleFrameElementClick = (e, el) => { e.stopPropagation(); setFSelectedNodeId(null); setFSelectedElementId(fSelectedElementId === el.id ? null : el.id); }
+  const handleFrameElementClick = (e, el) => {
+    e.stopPropagation()
+    setFSelectedNodeId(null)
+    setFSelectedElementId(prev => prev === el.id ? null : el.id)
+  }
 
-  const handleFrameCanvasClick = (e) => {
+  const handleFrameCanvasClick = e => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
-    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
-    const clickedExistingNode = fNodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
-    if (clickedExistingNode) {
-      if (fSelectedNodeId && fSelectedNodeId !== clickedExistingNode.id) {
-        const isDup = fElements.some(el => (el.n1 === fSelectedNodeId && el.n2 === clickedExistingNode.id) || (el.n1 === clickedExistingNode.id && el.n2 === fSelectedNodeId));
-        if (!isDup) { saveFrameState(); setFElements([...fElements, { id: Date.now(), n1: fSelectedNodeId, n2: clickedExistingNode.id }]); }
-      }
-      setFSelectedNodeId(clickedExistingNode.id); return;
+    const rawX = e.clientX - rect.left
+    const rawY = e.clientY - rect.top
+    const existing = fNodes.find(n => Math.hypot(n.x - rawX, n.y - rawY) < 20)
+    if (existing) {
+      handleFrameNodeClick(e, existing)
+      return
     }
-    const existingNode = fNodes.find(n => n.x === x && n.y === y);
-    if (!existingNode) {
-      saveFrameState(); setFSelectedElementId(null);
-      const newNodeId = Date.now();
-      const nodeName = fNodes.length < 26 ? String.fromCharCode(65 + fNodes.length) : `N${fNodes.length}`;
-      setFNodes([...fNodes, { id: newNodeId, name: nodeName, x, y }]);
-      if (fSelectedNodeId) setFElements([...fElements, { id: Date.now() + 1, n1: fSelectedNodeId, n2: newNodeId }]);
-      setFSelectedNodeId(newNodeId);
-    } else { setFSelectedNodeId(null); setFSelectedElementId(null); }
+
+    const x = Math.round(rawX / PIXELS_PER_GRID) * PIXELS_PER_GRID
+    const y = Math.round(rawY / PIXELS_PER_GRID) * PIXELS_PER_GRID
+    if (x < 25 || x > 1375 || y < 25 || y > 575) return
+
+    saveFrameState()
+    const id = Date.now()
+    const name = fNodes.length < 26 ? String.fromCharCode(65 + fNodes.length) : `N${fNodes.length}`
+    setFNodes(prev => [...prev, { id, name, x, y }])
+    if (fSelectedNodeId) {
+      setFElements(prev => [...prev, { id: Date.now() + 1, n1: fSelectedNodeId, n2: id }])
+    }
+    setFSelectedNodeId(id)
   }
 
   const handleFSupportTypeChange = (nodeId, type) => {
-    saveFrameState();
-    setFSupports(prev => {
-      const ns = { ...prev };
-      if (type === 'none' || type === 'free') delete ns[nodeId];
-      else ns[nodeId] = { ...ns[nodeId], type, direction: ns[nodeId]?.direction || 'horizontal' };
-      return ns;
-    });
-  }
-  const handleFLoadChange = (nodeId, axis, value) => { saveFrameState(); setFLoads(prev => { const nl = { ...prev }; if (value === '') { if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; } } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; } return nl; }); }
-  const handleFDistLoadChange = (elId, axis, value) => { saveFrameState(); setFDistLoads(prev => { const nd = { ...prev }; if (value === '') { if (nd[elId]) { delete nd[elId][axis]; if (Object.keys(nd[elId]).length === 0) delete nd[elId]; } } else { nd[elId] = { ...(nd[elId] || {}), [axis]: Number(value) }; } return nd; }); }
-  const handleElementPointLoadChange = (elId, field, value) => { saveFrameState(); setFPointLoadsOnElement(prev => { const np = { ...prev }; if (value === '') { if (np[elId]) { delete np[elId][field]; if (Object.keys(np[elId]).length === 0) delete np[elId]; } } else { np[elId] = { ...(np[elId] || {}), [field]: Number(value) }; } return np; }); }
-  const clearFrameCanvas = () => { saveFrameState(); setFNodes([]); setFElements([]); setFSupports({}); setFLoads({}); setFDistLoads({}); setFPointLoadsOnElement({}); setFSelectedNodeId(null); setFSelectedElementId(null); setFrameLocalData({ steps: [], rxns: {}, analyzed: false }); }
-
-  const loadFramePreset = (type) => {
     saveFrameState()
-    if (type === 'portal') {
-      const fNodesData = [
-        { id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 200, y: 200 },
-        { id: 3, name: "C", x: 350, y: 200 }, { id: 4, name: "D", x: 350, y: 350 }
-      ]
-      const fElementsData = [
-        { id: 11, n1: 1, n2: 2 }, { id: 12, n1: 2, n2: 3 }, { id: 13, n1: 3, n2: 4 }
-      ]
-      setFNodes(fNodesData); setFElements(fElementsData);
-      setFSupports({ 1: { type: "pin", direction: "horizontal" }, 4: { type: "roller", direction: "horizontal" } })
-      setFDistLoads({ 12: { wy: 3 } })
+    setFSupports(prev => {
+      const next = { ...prev }
+      if (type === 'none' || type === 'free') delete next[nodeId]
+      else next[nodeId] = { ...(next[nodeId] || {}), type, direction: next[nodeId]?.direction || 'horizontal' }
+      return next
+    })
+  }
+
+  const handleFLoadChange = (nodeId, axis, value) => {
+    saveFrameState()
+    setFLoads(prev => {
+      const next = deepClone(prev)
+      if (value === '') {
+        if (next[nodeId]) {
+          delete next[nodeId][axis]
+          if (!Object.keys(next[nodeId]).length) delete next[nodeId]
+        }
+      } else {
+        next[nodeId] = { ...(next[nodeId] || {}), [axis]: Number(value) }
+      }
+      return next
+    })
+  }
+
+  const handleFDistLoadChange = (elId, axis, value) => {
+    saveFrameState()
+    setFDistLoads(prev => {
+      const next = deepClone(prev)
+      if (value === '') {
+        if (next[elId]) {
+          delete next[elId][axis]
+          if (!Object.keys(next[elId]).length) delete next[elId]
+        }
+      } else {
+        next[elId] = { ...(next[elId] || {}), [axis]: Number(value) }
+      }
+      return next
+    })
+  }
+
+  const handleElementPointLoadChange = (elId, field, value) => {
+    saveFrameState()
+    setFPointLoadsOnElement(prev => {
+      const next = deepClone(prev)
+      if (value === '') {
+        if (next[elId]) {
+          delete next[elId][field]
+          if (!Object.keys(next[elId]).length) delete next[elId]
+        }
+      } else {
+        next[elId] = { ...(next[elId] || {}), [field]: Number(value) }
+      }
+      return next
+    })
+  }
+
+  const clearFrameCanvas = () => {
+    saveFrameState()
+    setFNodes([])
+    setFElements([])
+    setFSupports({})
+    setFLoads({})
+    setFDistLoads({})
+    setFPointLoadsOnElement({})
+    setFSelectedNodeId(null)
+    setFSelectedElementId(null)
+    setFrameLocalData({ steps: [], rxns: {}, analyzed: false })
+  }
+
+  const loadFramePreset = () => {
+    saveFrameState()
+    setFNodes([
+      { id: 1, name: 'A', x: 200, y: 350 },
+      { id: 2, name: 'B', x: 200, y: 200 },
+      { id: 3, name: 'C', x: 350, y: 200 },
+      { id: 4, name: 'D', x: 350, y: 350 },
+    ])
+    setFElements([
+      { id: 11, n1: 1, n2: 2 },
+      { id: 12, n1: 2, n2: 3 },
+      { id: 13, n1: 3, n2: 4 },
+    ])
+    setFSupports({
+      1: { type: 'pin', direction: 'horizontal' },
+      4: { type: 'roller', direction: 'horizontal' },
+    })
+    setFDistLoads({ 12: { wy: 3 } })
+    setFrameLocalData({ steps: [], rxns: {}, analyzed: false })
+  }
+
+  const framePointLocation = (el, p) => {
+    const a = fNodes.find(n => n.id === el.n1)
+    const b = fNodes.find(n => n.id === el.n2)
+    if (!a || !b) return null
+    const Lpx = Math.hypot(b.x - a.x, b.y - a.y)
+    const Lm = Lpx / PIXELS_PER_GRID * fGridScale
+    const ratio = Lm > EPS ? clamp(Number(p.x || 0) / Lm, 0, 1) : 0
+    return {
+      x: a.x + (b.x - a.x) * ratio,
+      y: a.y + (b.y - a.y) * ratio,
+      Lm,
     }
   }
 
-  const runFrameStaticsAnalysis = async () => {
-    setIsAnalyzing(true);
-    await new Promise(r => setTimeout(r, 1500));
-    try {
-      const fRxns = {}; const fSteps = []; fSteps.push("=== ENGINEERING STATICS : FRAME REACTIONS ===");
-      let sumFx = 0; let sumFy = 0;
-      const sups = Object.entries(fSupports);
-      if(sups.length > 0) {
-          const pivotId = sups[0][0]; const pivotNode = fNodes.find(n => n.id == pivotId); let mPivot = 0;
-          Object.entries(fLoads).forEach(([id, f]) => {
-              const n = fNodes.find(x => x.id == id);
-              const fx = Number(f.fx||0); const fy = -Number(f.fy||0); const mz = Number(f.mz||0);
-              sumFx += fx; sumFy += fy;
-              const dx = (n.x - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(n.y - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
-              mPivot += (fy * dx) - (fx * dy) + mz;
-          });
-          Object.entries(fDistLoads).forEach(([elId, dist]) => {
-              const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
-              const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
-              const wx = Number(dist.wx||0); const wy = -Number(dist.wy||0);
-              const tfx = wx * L_m; const tfy = wy * L_m;
-              sumFx += tfx; sumFy += tfy;
-              const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
-              const dx = (cx - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
-              mPivot += (tfy * dx) - (tfx * dy);
-          });
-          Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
-              const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
-              const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
-              const px = Number(pLoad.px||0); const py = -Number(pLoad.py||0);
-              sumFx += px; sumFy += py;
-              const ratio = L_m > 0 ? Number(pLoad.x||0) / L_m : 0;
-              const lx = n1.x + (n2.x - n1.x)*ratio; const ly = n1.y + (n2.y - n1.y)*ratio;
-              const dx = (lx - pivotNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(ly - pivotNode.y)/PIXELS_PER_GRID * fGridScale;
-              mPivot += (py * dx) - (px * dy);
-          });
+  const calculateFrameReactions = () => {
+    const rows = []
+    Object.entries(fSupports).forEach(([id, s]) => {
+      const node = fNodes.find(n => String(n.id) === String(id))
+      if (!node) return
 
-          let unknowns = 0;
-          sups.forEach(([id, data]) => { if(data.type==='pin') unknowns += 2; if(data.type==='roller') unknowns += 1; if(data.type==='fixed') unknowns += 3; });
+      if (s.type === 'pin') {
+        rows.push({ nodeId: node.id, component: 'fx', ux: 1, uy: 0, mz: 0, x: (node.x / PIXELS_PER_GRID) * fGridScale, y: -(node.y / PIXELS_PER_GRID) * fGridScale })
+        rows.push({ nodeId: node.id, component: 'fy', ux: 0, uy: 1, mz: 0, x: (node.x / PIXELS_PER_GRID) * fGridScale, y: -(node.y / PIXELS_PER_GRID) * fGridScale })
+      } else if (s.type === 'roller') {
+        // UI "horizontal" roller rests on a horizontal surface -> vertical reaction.
+        const vertical = (s.direction || 'horizontal') === 'horizontal'
+        rows.push({
+          nodeId: node.id,
+          component: vertical ? 'fy' : 'fx',
+          ux: vertical ? 0 : 1,
+          uy: vertical ? 1 : 0,
+          mz: 0,
+          x: (node.x / PIXELS_PER_GRID) * fGridScale,
+          y: -(node.y / PIXELS_PER_GRID) * fGridScale,
+        })
+      } else if (s.type === 'fixed') {
+        rows.push({ nodeId: node.id, component: 'fx', ux: 1, uy: 0, mz: 0, x: (node.x / PIXELS_PER_GRID) * fGridScale, y: -(node.y / PIXELS_PER_GRID) * fGridScale })
+        rows.push({ nodeId: node.id, component: 'fy', ux: 0, uy: 1, mz: 0, x: (node.x / PIXELS_PER_GRID) * fGridScale, y: -(node.y / PIXELS_PER_GRID) * fGridScale })
+        rows.push({ nodeId: node.id, component: 'mz', ux: 0, uy: 0, mz: 1, x: (node.x / PIXELS_PER_GRID) * fGridScale, y: -(node.y / PIXELS_PER_GRID) * fGridScale })
+      }
+    })
 
-          if (unknowns === 3 && sups.length === 2) {
-              let pinId, rollerId;
-              if(fSupports[sups[0][0]].type === 'pin') { pinId = sups[0][0]; rollerId = sups[1][0]; }
-              else { pinId = sups[1][0]; rollerId = sups[0][0]; }
-              const pNode = fNodes.find(n => n.id == pinId); const rNode = fNodes.find(n => n.id == rollerId);
-              let mPin = mPivot; 
-              if (pivotId !== pinId) {
-                  mPin = 0;
-                  Object.entries(fLoads).forEach(([id, f]) => {
-                      const n = fNodes.find(x => x.id == id);
-                      const fx = Number(f.fx||0); const fy = -Number(f.fy||0); const mz = Number(f.mz||0);
-                      const dx = (n.x - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(n.y - pNode.y)/PIXELS_PER_GRID * fGridScale;
-                      mPin += (fy * dx) - (fx * dy) + mz;
-                  });
-                  Object.entries(fDistLoads).forEach(([elId, dist]) => {
-                      const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
-                      const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
-                      const tfx = Number(dist.wx||0) * L_m; const tfy = -Number(dist.wy||0) * L_m;
-                      const cx = (n1.x + n2.x)/2; const cy = (n1.y + n2.y)/2;
-                      const dx = (cx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(cy - pNode.y)/PIXELS_PER_GRID * fGridScale;
-                      mPin += (tfy * dx) - (tfx * dy);
-                  });
-                  Object.entries(fPointLoadsOnElement).forEach(([elId, pLoad]) => {
-                      const el = fElements.find(e => e.id == elId); const n1 = fNodes.find(n => n.id == el.n1); const n2 = fNodes.find(n => n.id == el.n2);
-                      const L_svg = Math.sqrt((n2.x-n1.x)**2 + (n2.y-n1.y)**2); const L_m = L_svg / PIXELS_PER_GRID * fGridScale;
-                      const px = Number(pLoad.px||0); const py = -Number(pLoad.py||0);
-                      const ratio = L_m > 0 ? Number(pLoad.x||0) / L_m : 0;
-                      const lx = n1.x + (n2.x - n1.x)*ratio; const ly = n1.y + (n2.y - n1.y)*ratio;
-                      const dx = (lx - pNode.x)/PIXELS_PER_GRID * fGridScale; const dy = -(ly - pNode.y)/PIXELS_PER_GRID * fGridScale;
-                      mPin += (py * dx) - (px * dy);
-                  });
-              }
-              const dxR = (rNode.x - pNode.x)/PIXELS_PER_GRID * fGridScale; let r_roller_y = 0;
-              if(Math.abs(dxR) > 0.001) r_roller_y = -mPin / dxR;
-              const r_pin_y = -sumFy - r_roller_y; const r_pin_x = -sumFx;
-              fRxns[pinId] = { fx: r_pin_x, fy: r_pin_y }; fRxns[rollerId] = { fx: 0, fy: r_roller_y };
-              
-              fSteps.push(`[Step 1] ∑Fx = 0 \n➔ R_${pNode.name}x + (${sumFx.toFixed(2)}) = 0 \n➔ R_${pNode.name}x = ${r_pin_x.toFixed(2)} ${fForceUnit}`);
-              fSteps.push(`\n[Step 2] ∑M_${pNode.name} = 0 \n➔ R_${rNode.name}y * (${dxR.toFixed(2)}) + (${mPin.toFixed(2)}) = 0 \n➔ R_${rNode.name}y = ${r_roller_y.toFixed(2)} ${fForceUnit}`);
-              fSteps.push(`\n[Step 3] ∑Fy = 0 \n➔ R_${pNode.name}y + R_${rNode.name}y + (${sumFy.toFixed(2)}) = 0 \n➔ R_${pNode.name}y = ${r_pin_y.toFixed(2)} ${fForceUnit}`);
-          } else { fSteps.push(`∑Fx(ext) = ${sumFx.toFixed(2)}, ∑Fy(ext) = ${sumFy.toFixed(2)} \nNote: Structure is statically indeterminate.`); }
-      } else { fSteps.push("No supports defined."); }
-      setFrameLocalData({ steps: fSteps, rxns: fRxns, analyzed: true });
-    } catch (error) {
-      alert("Error calculating Frame Reactions");
-    } finally { setIsAnalyzing(false); }
+    if (rows.length !== 3) {
+      return { error: 'This statics reaction solver requires exactly 3 independent reaction components. For a fixed support, use a single fixed support with no other reactions.' }
+    }
+
+    let totalFx = 0, totalFy = 0, totalM = 0
+    const appliedLoads = []
+
+    Object.entries(fLoads).forEach(([id, f]) => {
+      const node = fNodes.find(n => String(n.id) === String(id))
+      if (!node) return
+      const fx = forceToKN(f.fx || 0, fForceUnit)
+      const fy = forceToKN(f.fy || 0, fForceUnit)
+      const mz = momentToKNm(f.mz || 0, 'kN·m')
+      const x = (node.x / PIXELS_PER_GRID) * fGridScale
+      const y = -(node.y / PIXELS_PER_GRID) * fGridScale
+      totalFx += fx
+      totalFy += fy
+      totalM += x * fy - y * fx + mz
+      appliedLoads.push({ fx, fy, mz })
+    })
+
+    Object.entries(fDistLoads).forEach(([elId, d]) => {
+      const el = fElements.find(e => String(e.id) === String(elId))
+      if (!el) return
+      const a = fNodes.find(n => n.id === el.n1)
+      const b = fNodes.find(n => n.id === el.n2)
+      if (!a || !b) return
+
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const Lpx = Math.hypot(dx, dy)
+      const Lm = Lpx / PIXELS_PER_GRID * fGridScale
+      if (Lm < EPS) return
+
+      const wx = forceToKN(d.wx || 0, fForceUnit)
+      const wy = forceToKN(d.wy || 0, fForceUnit)
+      const Fx = wx * Lm
+      const Fy = wy * Lm
+      const cx = ((a.x + b.x) / 2 / PIXELS_PER_GRID) * fGridScale
+      const cy = -((a.y + b.y) / 2 / PIXELS_PER_GRID) * fGridScale
+
+      totalFx += Fx
+      totalFy += Fy
+      totalM += cx * Fy - cy * Fx
+      appliedLoads.push({ fx: Fx, fy: Fy, mz: 0 })
+    })
+
+    Object.entries(fPointLoadsOnElement).forEach(([elId, p]) => {
+      const el = fElements.find(e => String(e.id) === String(elId))
+      if (!el) return
+      const loc = framePointLocation(el, p)
+      if (!loc) return
+      const x = (loc.x / PIXELS_PER_GRID) * fGridScale
+      const y = -(loc.y / PIXELS_PER_GRID) * fGridScale
+      const fx = forceToKN(p.px || 0, fForceUnit)
+      const fy = forceToKN(p.py || 0, fForceUnit)
+
+      totalFx += fx
+      totalFy += fy
+      totalM += x * fy - y * fx
+      appliedLoads.push({ fx, fy, mz: 0 })
+    })
+
+    const A = rows.map(r => [
+      r.ux,
+      r.uy,
+      r.x * r.uy - r.y * r.ux + r.mz,
+    ])
+    const sol = solveLinear3(A, [-totalFx, -totalFy, -totalM])
+    if (!sol) return { error: 'Support geometry is singular; no unique reaction solution exists.' }
+
+    const rxns = {}
+    rows.forEach((r, i) => {
+      if (!rxns[r.nodeId]) rxns[r.nodeId] = { fx: 0, fy: 0, mz: 0 }
+      rxns[r.nodeId][r.component] = r.component === 'mz'
+        ? knmToMoment(sol[i], 'kN·m')
+        : knToForce(sol[i], fForceUnit)
+    })
+
+    const reactionForces = Object.values(rxns).map(r => ({
+      fx: forceToKN(r.fx, fForceUnit),
+      fy: forceToKN(r.fy, fForceUnit),
+      mz: momentToKNm(r.mz, 'kN·m'),
+    }))
+    const residual = equilibriumResidual(appliedLoads, reactionForces)
+    return { rxns, residual }
   }
 
-  // ==========================================
-  // ENTER KEY LISTENER
-  // ==========================================
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (e.key === 'Enter') {
-        if (currentView === 'statics') {
-          if (activeTab === 'beam') analyzeBeam();
-          else if (activeTab === 'truss' && nodes.length >= 3) runTrussAnalysis();
-          else if (activeTab === 'frame' && fNodes.length >= 2) runFrameStaticsAnalysis();
-          else if (activeTab === 'vectors' && vectorLoads.length > 0) analyzeVectors();
-        }
+  const runFrameStaticsAnalysis = () => {
+    setErrorMessage('')
+    setIsAnalyzing(true)
+    try {
+      const result = calculateFrameReactions()
+      if (result.error) {
+        setFrameLocalData({
+          steps: [`⚠ ${result.error}`],
+          rxns: {},
+          analyzed: true,
+        })
+        setErrorMessage(result.error)
+        return
       }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  });
 
+      const steps = [
+        '=== ENGINEERING STATICS : FRAME REACTIONS ===',
+        'Sign convention: +Fx right, +Fy up, +Mz CCW.',
+        `ΣFx residual = ${formatNumber(knToForce(result.residual.fx, fForceUnit), 5)} ${fForceUnit}`,
+        `ΣFy residual = ${formatNumber(knToForce(result.residual.fy, fForceUnit), 5)} ${fForceUnit}`,
+        `ΣM residual = ${formatNumber(result.residual.mz, 5)} kN·m`,
+        'Reactions were solved using the global equilibrium equations ΣFx = 0, ΣFy = 0, ΣM = 0.',
+      ]
+
+      setFrameLocalData({
+        steps,
+        rxns: result.rxns,
+        analyzed: true,
+      })
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  const fSelectedNode = fNodes.find(n => n.id === fSelectedNodeId)
+  const fSelectedElement = fElements.find(e => e.id === fSelectedElementId)
+
+  // ============================================================
+  // GLOBAL
+  // ============================================================
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key !== 'Enter' || currentView !== 'statics') return
+      if (activeTab === 'particle') analyzeParticle()
+      else if (activeTab === 'vectors') analyzeVectors()
+      else if (activeTab === 'beam') analyzeBeam()
+      else if (activeTab === 'truss') runTrussAnalysis()
+      else if (activeTab === 'frame') runFrameStaticsAnalysis()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const inputStyle = {
+    backgroundColor: '#2A2A2A',
+    color: '#E0E0E0',
+    border: '1px solid #444',
+    padding: '7px',
+    borderRadius: '5px',
+  }
+
+  const buttonStyle = {
+    padding: '9px 14px',
+    borderRadius: '6px',
+    border: '1px solid #555',
+    backgroundColor: '#2A2A2A',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: 'bold',
+  }
+
+  const chartShear = getMaxMinObj(chartData, 'shear')
+  const chartMoment = getMaxMinObj(chartData, 'moment')
+  const maxAbsoluteShear = chartData.length ? Math.max(...chartData.map(d => Math.abs(d.shear || 0))) : 0
+  const maxAbsoluteMoment = chartData.length ? Math.max(...chartData.map(d => Math.abs(d.moment || 0))) : 0
+
+  const renderDimensions = (nodeList, scale) => {
+    if (!nodeList || nodeList.length < 2) return null
+    const xs = [...new Set(nodeList.map(n => n.x))].sort((a, b) => a - b)
+    const y = Math.max(...nodeList.map(n => n.y)) + 45
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {xs.slice(0, -1).map((x, i) => {
+          const next = xs[i + 1]
+          const dist = (next - x) / PIXELS_PER_GRID * scale
+          return (
+            <g key={`${x}-${next}`}>
+              <line x1={x} y1={y} x2={next} y2={y} stroke="#aaa" />
+              <line x1={x} y1={y - 7} x2={x} y2={y + 7} stroke="#aaa" />
+              <line x1={next} y1={y - 7} x2={next} y2={y + 7} stroke="#aaa" />
+              <text x={(x + next) / 2} y={y + 18} fill="#ddd" fontSize="12" textAnchor="middle">
+                {formatNumber(dist, 2)} m
+              </text>
+            </g>
+          )
+        })}
+      </g>
+    )
+  }
+
+  const renderDistributedLoadArrows = (x1, y1, x2, y2, wx, wy, unit) => {
+    const hasY = Number(wy) !== 0
+    const hasX = Number(wx) !== 0
+    if (!hasX && !hasY) return null
+    const count = Math.max(3, Math.floor(Math.hypot(x2 - x1, y2 - y1) / 25))
+    const arrows = []
+    for (let i = 0; i <= count; i++) {
+      const t = i / count
+      const ax = x1 + (x2 - x1) * t
+      const ay = y1 + (y2 - y1) * t
+      if (hasY) {
+        const positiveUp = Number(wy) > 0
+        arrows.push(
+          <line
+            key={`wy-${i}`}
+            x1={ax}
+            y1={positiveUp ? ay + 35 : ay - 35}
+            x2={ax}
+            y2={positiveUp ? ay + 5 : ay - 5}
+            stroke={theme.supportOrange}
+            strokeWidth="2.2"
+            markerEnd="url(#arrowUDL)"
+          />
+        )
+      }
+    }
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {arrows}
+        {hasY && (
+          <text x={(x1 + x2) / 2} y={Math.min(y1, y2) - 42} fill="#fff" fontSize="12" textAnchor="middle">
+            w = {Math.abs(wy)} {unit}/m
+          </text>
+        )}
+      </g>
+    )
+  }
+
+  // ============================================================
+  // RENDER
+  // ============================================================
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
-      
-      {/* Global Marker Defs */}
-      <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none', zIndex: -1 }}>
+      <svg width="0" height="0" style={{ position: 'absolute' }}>
         <defs>
-          <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
-          <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} /></marker>
-          <marker id="arrowUDL_Orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.udlOrange} /></marker>
+          <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill={theme.accent} />
+          </marker>
+          <marker id="arrowReaction" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} />
+          </marker>
+          <marker id="arrowUDL" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+            <polygon points="0 0, 8 3, 0 6" fill={theme.supportOrange} />
+          </marker>
         </defs>
       </svg>
 
-      {/* Loading Animation */}
       {isAnalyzing && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(18,18,18,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
-          <div style={{ width: '70px', height: '70px', border: `6px solid #333`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-          <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '6px', fontSize: '2.2rem', fontFamily: '"Times New Roman", Times, serif', fontWeight: 'bold' }}>CHU CALC</h1>
-          <p style={{ color: '#aaa', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Structural Mechanics...</p>
-          <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(18,18,18,.9)',
+          zIndex: 9999, display: 'flex', flexDirection: 'column',
+          justifyContent: 'center', alignItems: 'center'
+        }}>
+          <div style={{
+            width: 60, height: 60, border: '6px solid #333',
+            borderTop: `6px solid ${theme.supportOrange}`,
+            borderRadius: '50%', animation: 'spin 1s linear infinite'
+          }} />
+          <h2 style={{ letterSpacing: 4 }}>CHU CALC</h2>
+          <p style={{ color: '#aaa' }}>Analyzing Engineering Statics...</p>
         </div>
       )}
 
-      {/* Formula Sheet Modal */}
+      {errorMessage && (
+        <div style={{
+          maxWidth: 1300, margin: '0 auto 15px', padding: '12px 16px',
+          background: '#2a1717', border: '1px solid #7f3333',
+          borderRadius: 7, color: '#ffb4b4', fontWeight: 'bold'
+        }}>
+          ⚠ {errorMessage}
+          <button
+            onClick={() => setErrorMessage('')}
+            style={{ ...buttonStyle, float: 'right', padding: '3px 8px' }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {showFormulaModal && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <div style={{ backgroundColor: '#1E1E1E', color: '#E0E0E0', padding: '30px', borderRadius: '12px', maxWidth: '650px', width: '90%', maxHeight: '80vh', overflowY: 'auto', border: '1px solid #333' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.textMain}`, paddingBottom: '10px', marginBottom: '20px' }}>
-              <h2 style={{ margin: 0 }}>Statics Formula Sheet</h2>
-              <button onClick={() => setShowFormulaModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', fontWeight: 'bold', color: '#fff' }}>✕</button>
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.75)',
+          zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center'
+        }}>
+          <div style={{
+            width: 'min(700px, 92vw)', maxHeight: '82vh', overflow: 'auto',
+            background: theme.cardBg, border: '1px solid #444',
+            borderRadius: 10, padding: 25
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <h2>Statics Formula Sheet</h2>
+              <button onClick={() => setShowFormulaModal(false)} style={buttonStyle}>×</button>
             </div>
-            <div style={{ fontSize: '0.95rem', lineHeight: '1.6', color: '#ccc' }}>
-              <h4 style={{ margin: '10px 0 5px 0', color: '#fff' }}>1. Static Equilibrium Equations</h4>
-              <p style={{ backgroundColor: '#2A2A2A', padding: '10px', borderRadius: '6px', fontFamily: 'monospace', color: '#fff' }}>
-                ∑Fx = 0 (Horizontal Force Equilibrium)<br/>
-                ∑Fy = 0 (Vertical Force Equilibrium)<br/>
-                ∑M_z = 0 (Moment Equilibrium about Any Point)
-              </p>
-            </div>
+            <hr style={{ borderColor: '#333' }} />
+            <h3>2D Equilibrium</h3>
+            <p>ΣFx = 0</p>
+            <p>ΣFy = 0</p>
+            <p>ΣMz = 0</p>
+            <h3>Force Components</h3>
+            <p>Fx = F cos θ</p>
+            <p>Fy = F sin θ</p>
+            <h3>Particle with Two Cables</h3>
+            <p>T₁ = W cos θ₂ / sin(θ₁ + θ₂)</p>
+            <p>T₂ = W cos θ₁ / sin(θ₁ + θ₂)</p>
+            <h3>Important</h3>
+            <p>All calculations use a consistent sign convention and SI-derived force units internally.</p>
           </div>
         </div>
       )}
 
       <style>{`
-        #root { max-width: 100% !important; margin: 0 !important; padding: 0 !important; border: none !important; box-shadow: none !important; text-align: left !important; width: 100% !important; }
-        body { margin: 0; padding: 0; background-color: ${theme.bg}; color: ${theme.textMain}; width: 100% !important; overflow-x: hidden; }
-        .app-bg { background-color: ${theme.bg}; min-height: 100vh; padding: 20px 25px; width: 100%; box-sizing: border-box; }
-        .report-document { width: 100% !important; max-width: none !important; margin: 0 0 40px 0 !important; background: ${theme.cardBg}; padding: 40px; box-sizing: border-box; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid #333; }
-        select, input { background-color: #2A2A2A !important; color: #E0E0E0 !important; border: 1px solid #444 !important; }
+        #root { max-width:100% !important; margin:0 !important; padding:0 !important; width:100% !important; text-align:left !important; }
+        body { margin:0; background:${theme.bg}; color:${theme.textMain}; overflow-x:hidden; }
+        .app-bg { min-height:100vh; padding:20px 25px; box-sizing:border-box; background:${theme.bg}; }
+        .report-document { width:100%; background:${theme.cardBg}; padding:30px; box-sizing:border-box; box-shadow:0 4px 20px rgba(0,0,0,.25); border:1px solid #333; border-radius:8px; }
+        select, input { background:#2A2A2A !important; color:#E0E0E0 !important; border:1px solid #444 !important; }
+        button:disabled { opacity:.45; cursor:not-allowed !important; }
+        @keyframes spin { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }
+        @media print {
+          .app-bg { padding:0; background:#fff; color:#111; }
+          .report-document { box-shadow:none; border:none; background:#fff; }
+          button, select, input { display:none !important; }
+        }
       `}</style>
 
-      {/* ======================= HOME VIEW: 4 SUBJECTS ======================= */}
       {currentView === 'home' ? (
-        <div style={{ width: '100%', maxWidth: '1300px', margin: '40px auto', textAlign: 'center', padding: '0 20px', boxSizing: 'border-box' }}>
-          
-          <div style={{ display: 'inline-block', backgroundColor: 'rgba(0, 191, 255, 0.1)', color: '#00BFFF', padding: '6px 16px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 'bold', border: '1px solid rgba(0, 191, 255, 0.3)', marginBottom: '20px', letterSpacing: '1px' }}>
-            ⚡ Interactive Structural Platform for Engineering Students
+        <div style={{ width: '100%', maxWidth: 1300, margin: '50px auto', textAlign: 'center' }}>
+          <div style={{
+            display: 'inline-block', background: 'rgba(0,191,255,.1)', color: theme.accent,
+            padding: '7px 16px', borderRadius: 20, border: '1px solid rgba(0,191,255,.3)',
+            fontWeight: 'bold', marginBottom: 20
+          }}>
+            ⚡ Interactive Engineering Calculation Platform
           </div>
+          <h1 style={{ fontSize: '3.2rem', margin: 0 }}>CHU CALC</h1>
+          <p style={{ color: '#aaa', fontSize: '1.2rem', marginBottom: 40 }}>
+            Engineering Mechanics & Structural Statics
+          </p>
 
-          <h1 style={{ fontSize: '3rem', color: '#fff', marginBottom: '10px', letterSpacing: '1px' }}>CHU CALC</h1>
-          <p style={{ fontSize: '1.2rem', color: '#aaa', marginBottom: '40px' }}>Select an Engineering Subject to Start Analysis</p>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '20px', marginBottom: '50px' }}>
-            <div 
-              onClick={() => setCurrentView('statics')}
-              style={{ backgroundColor: '#1E1E1E', border: '1px solid #333', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', transition: '0.3s', boxShadow: '0 4px 15px rgba(0,0,0,0.2)', textAlign: 'left' }}
-              onMouseEnter={(e) => e.currentTarget.style.borderColor = '#00BFFF'}
-              onMouseLeave={(e) => e.currentTarget.style.borderColor = '#333'}
-            >
-              <h3 style={{ color: '#00BFFF', fontSize: '1.4rem', marginBottom: '10px' }}>1. Engineering Statics</h3>
-              <p style={{ color: '#aaa', fontSize: '0.95rem' }}>Particle equilibrium, force vectors, beams, trusses, and frames.</p>
-            </div>
-            <div onClick={() => alert("Coming soon!")} style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}>
-              <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>2. Mechanic of Materials</h3>
-              <p style={{ color: '#666', fontSize: '0.95rem' }}>Stress, strain, bending, and torsional deformation analysis.</p>
-            </div>
-            <div onClick={() => alert("Coming soon!")} style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}>
-              <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>3. Theory of Structures</h3>
-              <p style={{ color: '#666', fontSize: '0.95rem' }}>Indeterminate structures, influence lines, and energy methods.</p>
-            </div>
-            <div onClick={() => alert("Coming soon!")} style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}>
-              <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>4. Structural Analysis</h3>
-              <p style={{ color: '#666', fontSize: '0.95rem' }}>Matrix methods, stiffness method, and finite element models.</p>
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 20 }}>
+            {[
+              ['Engineering Statics', 'Particle equilibrium, force vectors, beams, trusses and frame reactions.', 'statics'],
+              ['Mechanics of Materials', 'Stress, strain, bending and torsion analysis.', null],
+              ['Theory of Structures', 'Indeterminate structures, influence lines and energy methods.', null],
+              ['Structural Analysis', 'Matrix methods, stiffness method and finite-element models.', null],
+            ].map(([title, desc, view]) => (
+              <div
+                key={title}
+                onClick={() => view ? setCurrentView(view) : null}
+                style={{
+                  background: view ? '#1E1E1E' : '#181818',
+                  border: `1px solid ${view ? '#333' : '#292929'}`,
+                  borderRadius: 12, padding: 28, textAlign: 'left',
+                  cursor: view ? 'pointer' : 'default', opacity: view ? 1 : .55
+                }}
+              >
+                <h3 style={{ color: view ? theme.accent : '#888' }}>{title}</h3>
+                <p style={{ color: '#aaa', lineHeight: 1.5 }}>{desc}</p>
+                {!view && <small style={{ color: '#666' }}>Coming soon</small>}
+              </div>
+            ))}
           </div>
         </div>
       ) : (
-        /* ======================= STATICS VIEW: THE CALCULATOR ======================= */
-        <div style={{ width: '100%', margin: '0 auto' }}>
-          
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', width: '100%' }}>
-            <button 
-              onClick={() => setCurrentView('home')} 
-              style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #444', backgroundColor: '#1E1E1E', color: '#fff', position: 'relative', zIndex: 10 }}>
-              ◀ Main Menu
-            </button>
-            <div style={{ textAlign: 'center' }}>
-              <h2 style={{ fontSize: '1.8rem', letterSpacing: '2px', color: theme.textMain, margin: '0 0 5px 0' }}>Engineering Mechanics Statics</h2>
-            </div>
-            <button 
-              onClick={() => setShowFormulaModal(true)} 
-              style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #555', backgroundColor: '#333', color: '#fff', position: 'relative', zIndex: 10 }}>
-              📖 Formulas
-            </button>
+        <div style={{ width: '100%' }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            marginBottom: 20, gap: 10, flexWrap: 'wrap'
+          }}>
+            <button style={buttonStyle} onClick={() => setCurrentView('home')}>◀ Main Menu</button>
+            <h2 style={{ margin: 0, letterSpacing: 2 }}>Engineering Mechanics — Statics</h2>
+            <button style={buttonStyle} onClick={() => setShowFormulaModal(true)}>📖 Formulas</button>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 10, width: '100%' }}>
-            <button onClick={() => setActiveTab('particle')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'particle' ? '#333' : '#1E1E1E', color: '#fff' }}>Particle Equilibrium</button>
-            <button onClick={() => setActiveTab('vectors')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'vectors' ? '#333' : '#1E1E1E', color: '#fff' }}>Force Vectors</button>
-            <button onClick={() => setActiveTab('beam')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'beam' ? '#333' : '#1E1E1E', color: '#fff' }}>Simple Beam</button>
-            <button onClick={() => setActiveTab('truss')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'truss' ? '#333' : '#1E1E1E', color: '#fff' }}>Truss Builder</button>
-            <button onClick={() => setActiveTab('frame')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'frame' ? '#333' : '#1E1E1E', color: '#fff' }}>Frame Reactions</button>
+          <div style={{
+            display: 'flex', gap: 10, justifyContent: 'center',
+            flexWrap: 'wrap', marginBottom: 20
+          }}>
+            {[
+              ['particle', 'Particle Equilibrium'],
+              ['vectors', 'Force Vectors'],
+              ['beam', 'Beam Analysis'],
+              ['truss', 'Truss Analysis'],
+              ['frame', 'Frame Reactions'],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => { setActiveTab(id); setErrorMessage('') }}
+                style={{
+                  ...buttonStyle,
+                  background: activeTab === id ? '#333' : '#1E1E1E',
+                  padding: '11px 18px'
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
 
-          {/* ======================= PARTICLE EQUILIBRIUM (CUSTOMIZABLE CANVAS) ======================= */}
+          {/* ================= PARTICLE ================= */}
           {activeTab === 'particle' && (
             <div className="report-document">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
-                <div>
-                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Equilibrium of a Particle (Chapter 3)</h1>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Interactive Canvas: Click anywhere to set joint position, adjust angles & weight freely.</p>
-                </div>
-              </div>
+              <h1>Equilibrium of a Particle</h1>
+              <p style={{ color: '#888' }}>Two-cable equilibrium with an interactive joint position.</p>
 
-              {/* Workspace สำหรับแสดงภาพจำลองตามโจทย์ */}
-              <div style={{ display: 'flex', gap: '20px', marginBottom: '25px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                
-                {/* รูปที่ 1: Problem Diagram (คลิกวาง Joint + Pin แนวนอน + กล้องโทรทรรศน์อวกาศ) */}
-                <div style={{ flex: 1, minWidth: '340px', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: '#00BFFF', fontSize: '1rem' }}>Problem Diagram (Click on canvas to place Joint)</h4>
-                  <svg width="100%" height="320" viewBox="0 0 600 350" onClick={handleParticleCanvasClick} style={{ backgroundColor: '#151515', cursor: 'crosshair', borderRadius: '6px' }}>
-                    <pattern id="gridParticle" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M 50 0 L 0 0 0 50" fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
-                    <rect width="100%" height="100%" fill="url(#gridParticle)" />
-
-                    {/* ผนังซ้ายและขวา */}
-                    <rect x="50" y="70" width="15" height="120" fill="#a07050" stroke="#555" />
-                    <rect x="535" y="70" width="15" height="120" fill="#a07050" stroke="#555" />
-                    
-                    {/* Pin แนวนอนซ้าย (C) และขวา (B) */}
-                    <polygon points="65,100 50,90 50,110" fill="#FFA500" />
-                    <text x="35" y="95" fill="#fff" fontSize="13" fontWeight="bold">C</text>
-                    <polygon points="535,100 550,90 550,110" fill="#FFA500" />
-                    <text x="560" y="95" fill="#fff" fontSize="13" fontWeight="bold">B</text>
-
-                    {/* สายเคเบิลซ้ายและขวาเชื่อมจาก Pin ไปยัง Joint ที่คลิก */}
-                    <line x1="65" y1="100" x2={jointPos.x} y2={jointPos.y} stroke="#00BFFF" strokeWidth="4" />
-                    <line x1="535" y1="100" x2={jointPos.x} y2={jointPos.y} stroke="#00BFFF" strokeWidth="4" />
-
-                    {/* มุม θ₁ และ θ₂ เทียบกับแกน X */}
-                    <text x={jointPos.x - 70} y={jointPos.y - 20} fill="#FFA500" fontSize="13" fontWeight="bold">θ₁ = {pAngle1}°</text>
-                    <text x={jointPos.x + 30} y={jointPos.y - 20} fill="#FFA500" fontSize="13" fontWeight="bold">θ₂ = {pAngle2}°</text>
-                    <line x1={jointPos.x - 80} y1={jointPos.y} x2={jointPos.x + 80} y2={jointPos.y} stroke="#666" strokeDasharray="3,3" />
-
-                    {/* จุด Joint ตรงกลาง */}
-                    <circle cx={jointPos.x} cy={jointPos.y} r={7} fill="#fff" stroke="#00BFFF" strokeWidth="2" />
-                    <text x={jointPos.x + 12} y={jointPos.y + 5} fill="#00BFFF" fontSize="13" fontWeight="bold">Joint</text>
-
-                    {/* สายเคเบิลห้อยน้ำหนัก */}
-                    <line x1={jointPos.x} y1={jointPos.y} x2={jointPos.x} y2={jointPos.y + 70} stroke="#00BFFF" strokeWidth="4" />
-
-                    {/* รูปกล้องโทรทรรศน์อวกาศ (Space Telescope) */}
-                    <g transform={`translate(${jointPos.x - 30}, ${jointPos.y + 70})`}>
-                      <rect x="0" y="0" width="60" height="40" rx="6" fill="#334155" stroke="#94a3b8" strokeWidth="2" />
-                      <rect x="-25" y="8" width="20" height="24" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1" />
-                      <rect x="65" y="8" width="20" height="24" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1" />
-                      <circle cx="30" cy="40" r="8" fill="#0ea5e9" stroke="#fff" strokeWidth="1" />
-                      <text x="-5" y="-8" fill="#FFA500" fontSize="12" fontWeight="bold">W = {pWeight} {pUnit}</text>
-                    </g>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(340px,1fr))', gap: 20 }}>
+                <div style={{ background: '#151515', padding: 15, borderRadius: 8 }}>
+                  <h3 style={{ color: theme.accent }}>Problem Diagram</h3>
+                  <svg width="100%" height="320" viewBox="0 0 600 350" onClick={handleParticleCanvasClick} style={{ cursor: 'crosshair' }}>
+                    <defs>
+                      <pattern id="particleGrid" width="50" height="50" patternUnits="userSpaceOnUse">
+                        <path d="M50 0 L0 0 0 50" fill="none" stroke="#2a2a2a" />
+                      </pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#particleGrid)" />
+                    <rect x="50" y="70" width="15" height="120" fill="#8a674e" />
+                    <rect x="535" y="70" width="15" height="120" fill="#8a674e" />
+                    <polygon points="65,100 50,90 50,110" fill={theme.supportOrange} />
+                    <polygon points="535,100 550,90 550,110" fill={theme.supportOrange} />
+                    <line x1="65" y1="100" x2={jointPos.x} y2={jointPos.y} stroke={theme.accent} strokeWidth="4" />
+                    <line x1="535" y1="100" x2={jointPos.x} y2={jointPos.y} stroke={theme.accent} strokeWidth="4" />
+                    <line x1={jointPos.x} y1={jointPos.y} x2={jointPos.x} y2={jointPos.y + 70} stroke={theme.accent} strokeWidth="4" />
+                    <circle cx={jointPos.x} cy={jointPos.y} r="7" fill="#fff" />
+                    <text x={jointPos.x + 10} y={jointPos.y - 15} fill={theme.accent}>Joint</text>
+                    <text x={jointPos.x - 75} y={jointPos.y - 20} fill={theme.supportOrange}>θ₁={pAngle1}°</text>
+                    <text x={jointPos.x + 25} y={jointPos.y - 20} fill={theme.supportOrange}>θ₂={pAngle2}°</text>
+                    <text x={jointPos.x - 25} y={jointPos.y + 100} fill={theme.supportOrange}>W={pWeight} {pUnit}</text>
                   </svg>
                 </div>
 
-                {/* รูปที่ 2: Free-Body Diagram (FBD) */}
-                <div style={{ flex: 1, minWidth: '340px', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: '#FFA500', fontSize: '1rem' }}>Free-Body Diagram (Concurrent Forces at Joint)</h4>
-                  <svg width="100%" height="320" viewBox="0 0 600 350" style={{ backgroundColor: '#151515', borderRadius: '6px' }}>
-                    <line x1="300" y1="40" x2="300" y2="310" stroke="#666" strokeWidth="1.5" strokeDasharray="4,4" />
-                    <text x="310" y="55" fill="#888" fontSize="14">y</text>
-                    <line x1="80" y1="180" x2="520" y2="180" stroke="#666" strokeWidth="1.5" strokeDasharray="4,4" />
-                    <text x="505" y="170" fill="#888" fontSize="14">x</text>
-                    
+                <div style={{ background: '#151515', padding: 15, borderRadius: 8 }}>
+                  <h3 style={{ color: theme.supportOrange }}>Free-Body Diagram</h3>
+                  <svg width="100%" height="320" viewBox="0 0 600 350">
+                    <line x1="300" y1="30" x2="300" y2="320" stroke="#555" strokeDasharray="4 4" />
+                    <line x1="60" y1="180" x2="540" y2="180" stroke="#555" strokeDasharray="4 4" />
                     <circle cx="300" cy="180" r="5" fill="#fff" />
-                    <text x="270" y="195" fill="#fff" fontSize="13" fontWeight="bold">Joint</text>
-
-                    <line x1="300" y1="180" x2="180" y2="90" stroke="#00BFFF" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
-                    <text x="190" y="125" fill="#00BFFF" fontSize="14" fontWeight="bold">T₁</text>
-
-                    <line x1="300" y1="180" x2="420" y2="90" stroke="#00BFFF" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
-                    <text x="390" y="125" fill="#00BFFF" fontSize="14" fontWeight="bold">T₂</text>
-
-                    <line x1="300" y1="180" x2="300" y2="260" stroke="#FFA500" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
-                    <text x="315" y="230" fill="#FFA500" fontSize="13" fontWeight="bold">W = {pWeight} {pUnit}</text>
+                    <line x1="300" y1="180" x2="180" y2="90" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                    <line x1="300" y1="180" x2="420" y2="90" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                    <line x1="300" y1="180" x2="300" y2="275" stroke={theme.supportOrange} strokeWidth="3" markerEnd="url(#arrowReaction)" />
+                    <text x="185" y="110" fill={theme.accent}>T₁</text>
+                    <text x="420" y="110" fill={theme.accent}>T₂</text>
+                    <text x="315" y="240" fill={theme.supportOrange}>W</text>
+                    <text x="515" y="170" fill="#aaa">+x</text>
+                    <text x="310" y="45" fill="#aaa">+y</text>
                   </svg>
                 </div>
-
               </div>
 
-              {/* ส่วนควบคุมค่าอินพุต */}
-              <div style={{ backgroundColor: '#1A1A1A', padding: '20px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
-                <h3 style={{ margin: '0 0 15px 0', fontSize: '1.1rem', color: '#fff' }}>Problem Variables Setup</h3>
-                
-                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Telescope Weight (W):</label>
-                    <input type="number" value={pWeight} onChange={(e) => setPWeight(e.target.value)} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Cable Angle Left (θ₁°):</label>
-                    <input type="number" value={pAngle1} onChange={(e) => setPAngle1(e.target.value)} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Cable Angle Right (θ₂°):</label>
-                    <input type="number" value={pAngle2} onChange={(e) => setPAngle2(e.target.value)} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Unit:</label>
-                    <select value={pUnit} onChange={(e) => setPUnit(e.target.value)} style={{ padding: '8px', borderRadius: '6px' }}>
-                      <option value="N">N</option><option value="kN">kN</option><option value="lb">lb</option>
+              <div style={{ marginTop: 20, padding: 20, background: '#1A1A1A', borderRadius: 8 }}>
+                <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'end' }}>
+                  <label>W
+                    <input type="number" value={pWeight} onChange={e => setPWeight(e.target.value)} style={{ ...inputStyle, display: 'block' }} />
+                  </label>
+                  <label>θ₁ (deg)
+                    <input type="number" min="0" max="180" value={pAngle1} onChange={e => setPAngle1(e.target.value)} style={{ ...inputStyle, display: 'block' }} />
+                  </label>
+                  <label>θ₂ (deg)
+                    <input type="number" min="0" max="180" value={pAngle2} onChange={e => setPAngle2(e.target.value)} style={{ ...inputStyle, display: 'block' }} />
+                  </label>
+                  <label>Force unit
+                    <select value={pUnit} onChange={e => setPUnit(e.target.value)} style={{ ...inputStyle, display: 'block' }}>
+                      <option>N</option><option>kN</option><option>lb</option>
                     </select>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '20px', textAlign: 'center' }}>
-                  <button onClick={analyzeParticleSimple} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer' }}>Calculate Equilibrium ($T_1$ & $T_2$)</button>
+                  </label>
+                  <button style={buttonStyle} onClick={analyzeParticle}>Calculate Equilibrium</button>
                 </div>
               </div>
 
               {particleResult && (
-                <div style={{ border: `1px solid ${theme.border}`, padding: '20px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>Equilibrium Analysis Steps & Solution</h4>
-                  <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
-                    {particleResult.steps.map((step, idx) => (
-                      <div key={idx} style={{ marginBottom: '8px' }}>{step}</div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: '30px', fontSize: '1.1rem', color: '#fff', flexWrap: 'wrap' }}>
-                    <span><strong>Tension T₁ (Left Cable):</strong> {particleResult.T1.toFixed(2)} {pUnit}</span>
-                    <span><strong>Tension T₂ (Right Cable):</strong> {particleResult.T2.toFixed(2)} {pUnit}</span>
+                <div style={{ marginTop: 20, padding: 20, borderLeft: `5px solid ${theme.accent}`, background: '#1A1A1A' }}>
+                  <h3>Solution</h3>
+                  <pre style={{ whiteSpace: 'pre-wrap', color: '#ccc' }}>{particleResult.steps.join('\n')}</pre>
+                  <div style={{ display: 'flex', gap: 30, flexWrap: 'wrap', fontSize: '1.1rem' }}>
+                    <b>T₁ = {formatNumber(particleResult.T1)} {pUnit}</b>
+                    <b>T₂ = {formatNumber(particleResult.T2)} {pUnit}</b>
                   </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* ======================= TAB 2: FORCE VECTORS ======================= */}
+          {/* ================= VECTORS ================= */}
           {activeTab === 'vectors' && (
             <div className="report-document">
-               <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
-                <div>
-                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>2D Force System Analysis</h1>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: Vector Addition & Equilibrium</p>
-                </div>
+              <h1>2D Force Vector Analysis</h1>
+              <div style={{ marginBottom: 15 }}>
+                <label>Unit&nbsp;
+                  <select value={vectorUnit} onChange={e => { setVectorUnit(e.target.value); setVectorResult(null) }} style={inputStyle}>
+                    <option>N</option><option>kN</option><option>lb</option><option>kip</option>
+                  </select>
+                </label>
               </div>
 
-              <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
-                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                   <h3 style={{ margin: '0', color: theme.textMain, fontSize: '1.1rem' }}>1. Force Vectors Visualization</h3>
-                   <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                     <label style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Unit:</label>
-                     <select value={vectorUnit} onChange={(e) => setVectorUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
-                       <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
-                     </select>
-                   </div>
-                 </div>
-                 
-                 <div style={{ width: '100%', overflow: 'hidden', display: 'flex', justifyContent: 'center', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '6px' }}>
-                   <svg width="100%" height="400" viewBox="0 0 1000 600" style={{ display: 'block' }}>
-                      <g opacity="0.3">
-                         <line x1="500" y1="0" x2="500" y2="600" stroke="#666" strokeWidth="2" strokeDasharray="5,5" />
-                         <line x1="0" y1="300" x2="1000" y2="300" stroke="#666" strokeWidth="2" strokeDasharray="5,5" />
-                      </g>
-                      <text x="960" y="320" fill="#fff" fontSize="16" fontWeight="bold">X</text>
-                      <text x="515" y="30" fill="#fff" fontSize="16" fontWeight="bold">Y</text>
-                      <circle cx="500" cy="300" r="5" fill="#fff" />
-
-                      {(() => {
-                          const cx = 500; const cy = 300;
-                          const vMax = vectorResult ? Math.max(...vectorLoads.map(v=>v.magnitude), vectorResult.rMag) : Math.max(10, ...vectorLoads.map(v=>v.magnitude));
-                          const scaleFactor = 220 / (vMax || 1); 
-
-                          return (
-                            <>
-                              {vectorLoads.map((v, i) => {
-                                 if (!v.magnitude) return null;
-                                 const { drawRad, isOut } = getVectorComponents(v);
-                                 const xOut = cx + v.magnitude * Math.cos(drawRad) * scaleFactor;
-                                 const yOut = cy - v.magnitude * Math.sin(drawRad) * scaleFactor;
-                                 
-                                 const textOffX = xOut > cx ? 10 : -35;
-                                 const textOffY = yOut > cy ? 20 : -10;
-
-                                 return (
-                                    <g key={v.id}>
-                                      {isOut ? (
-                                         <line x1={cx} y1={cy} x2={xOut} y2={yOut} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                                      ) : (
-                                         <line x1={xOut} y1={yOut} x2={cx} y2={cy} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                                      )}
-                                      <text x={xOut + textOffX} y={yOut + textOffY} fill={theme.accent} fontSize="14" fontWeight="bold">F{i+1}</text>
-                                    </g>
-                                 )
-                              })}
-                              
-                              {vectorResult && vectorResult.rMag > 0.01 && (
-                                  <g>
-                                    <line 
-                                      x1={cx} y1={cy} 
-                                      x2={cx + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * scaleFactor} 
-                                      y2={cy - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * scaleFactor} 
-                                      stroke={theme.supportOrange} strokeWidth="5" markerEnd="url(#arrowReaction)" 
-                                    />
-                                    <text 
-                                      x={cx + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * scaleFactor + 15} 
-                                      y={cy - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * scaleFactor - 15} 
-                                      fill={theme.supportOrange} fontSize="16" fontWeight="bold"
-                                    >
-                                      R = {vectorResult.rMag.toFixed(2)}
-                                    </text>
-                                  </g>
-                              )}
-                            </>
-                          )
-                      })()}
-                   </svg>
-                 </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                 <div style={{ flex: '1', backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                      <h4 style={{ margin: 0, fontSize: '1.1rem' }}>Force Inputs</h4>
-                      <button onClick={addVectorLoad} style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #555', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>+ Add Force</button>
-                    </div>
-                    
-                    {vectorLoads.map((v, index) => (
-                       <div key={v.id} style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '10px', paddingBottom: '10px', borderBottom: `1px dashed ${theme.border}`, flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 'bold', width: '30px' }}>F{index + 1}:</span>
-                          <label>Mag:</label>
-                          <input type="number" value={v.magnitude} onChange={(e) => updateVectorLoad(v.id, 'magnitude', e.target.value)} style={{ width: '70px', padding: '6px', borderRadius: '4px' }} />
-                          <label>Angle:</label>
-                          <input type="number" value={v.angle} onChange={(e) => updateVectorLoad(v.id, 'angle', e.target.value)} style={{ width: '60px', padding: '6px', borderRadius: '4px' }} />
-                          <select value={v.quadrant} onChange={(e) => updateVectorLoad(v.id, 'quadrant', parseInt(e.target.value))} style={{ padding: '6px', borderRadius: '4px' }}>
-                              <option value={1}>Q1 (บนขวา)</option>
-                              <option value={2}>Q2 (บนซ้าย)</option>
-                              <option value={3}>Q3 (ล่างซ้าย)</option>
-                              <option value={4}>Q4 (ล่างขวา)</option>
-                          </select>
-                          <select value={v.refAxis} onChange={(e) => updateVectorLoad(v.id, 'refAxis', e.target.value)} style={{ padding: '6px', borderRadius: '4px' }}>
-                              <option value="x">เทียบแกน X</option>
-                              <option value="y">เทียบแกน Y</option>
-                          </select>
-                          <select value={v.direction} onChange={(e) => updateVectorLoad(v.id, 'direction', e.target.value)} style={{ padding: '6px', borderRadius: '4px' }}>
-                              <option value="out">พุ่งออก (Out)</option>
-                              <option value="in">พุ่งเข้า (In)</option>
-                          </select>
-                          <button onClick={() => removeVectorLoad(v.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #555', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
-                       </div>
-                    ))}
-                 </div>
-              </div>
-
-              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                <button onClick={analyzeVectors} disabled={vectorLoads.length === 0} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: vectorLoads.length === 0 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: vectorLoads.length === 0 ? 'not-allowed' : 'pointer' }}>Resolve Force Vectors</button>
-              </div>
-
-              {vectorResult && (
-                 <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
-                    <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Vector Component Analysis (Calculation Steps)</h4>
-                    <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, overflowX: 'auto' }}>
-                       <table style={{ width: '100%', textAlign: 'left', borderCollapse: 'collapse' }}>
-                         <thead>
-                           <tr style={{ borderBottom: '2px solid #555' }}>
-                             <th style={{ padding: '8px 4px' }}>Force</th>
-                             <th style={{ padding: '8px 4px' }}>Fx ({vectorUnit})</th>
-                             <th style={{ padding: '8px 4px' }}>Fy ({vectorUnit})</th>
-                           </tr>
-                         </thead>
-                         <tbody>
-                           {vectorResult.steps.map(s => (
-                             <tr key={s.id} style={{ borderBottom: '1px solid #333' }}>
-                                <td style={{ padding: '8px 4px', fontWeight: 'bold' }}>{s.name}</td>
-                                <td style={{ padding: '8px 4px' }}>{s.fx.toFixed(2)}</td>
-                                <td style={{ padding: '8px 4px' }}>{s.fy.toFixed(2)}</td>
-                             </tr>
-                           ))}
-                           <tr style={{ borderTop: '2px solid #555', backgroundColor: '#222' }}>
-                              <td style={{ padding: '8px 4px', fontWeight: 'bold' }}>SUM (Σ)</td>
-                              <td style={{ padding: '8px 4px', fontWeight: 'bold', color: theme.accent }}>{vectorResult.sumFx.toFixed(2)}</td>
-                              <td style={{ padding: '8px 4px', fontWeight: 'bold', color: theme.accent }}>{vectorResult.sumFy.toFixed(2)}</td>
-                           </tr>
-                         </tbody>
-                       </table>
-                    </div>
-                    <div style={{ display: 'flex', gap: '30px', justifyContent: 'flex-start', marginBottom: '15px', color: '#fff', fontSize: '1.1rem' }}>
-                        <span><strong>|R| (Resultant):</strong> {vectorResult.rMag.toFixed(2)} {vectorUnit}</span>
-                        <span><strong>θ (Angle):</strong> {vectorResult.refAng.toFixed(2)}° <span style={{fontSize: '0.9rem', color: '#aaa'}}>({vectorResult.dirSymbol})</span></span>
-                    </div>
-                 </div>
-              )}
-            </div>
-          )}
-
-          {/* ======================= TAB 1: BEAM ======================= */}
-          {activeTab === 'beam' && (
-            <div className="report-document" id="report-container">
-              <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
-                <div>
-                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Beam Analysis Report</h1>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: CHU-CALC Static Evaluation</p>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
-                <button onClick={() => loadBeamPreset('simply-supported')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Simply Supported (Point Load)</button>
-                <button onClick={() => loadBeamPreset('overhanging')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Overhanging Beam (UDL + Point)</button>
-                <button onClick={() => loadBeamPreset('cantilever')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Cantilever Beam</button>
-              </div>
-
-              <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <h3 style={{ margin: 0, color: theme.textMain, fontSize: '1.1rem' }}>1. Structural Beam Model & Loading</h3>
-                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                    <label style={{ fontWeight: 'bold', fontSize: '0.9rem' }}>Unit:</label>
-                    <select value={forceUnit} onChange={(e) => setForceUnit(e.target.value)} style={{ padding: '4px 8px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
-                      <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
-                    </select>
-                  </div>
-                </div>
-                <svg viewBox="0 0 1000 180" style={{ width: '100%', height: 'auto', backgroundColor: '#151515' }}>
-                  <line x1="50" y1="140" x2="950" y2="140" stroke="#444" strokeWidth="1" strokeDasharray="5,5" />
-                  <text x="500" y="165" textAnchor="middle" fill="#aaa" fontSize="14">L = {safeBeamLength} m</text>
-                  <rect x="50" y="75" width="900" height="15" fill="#444" stroke="#666" strokeWidth="2" />
-                  
-                  {beamSupports.map(sup => {
-                    const label = getBeamNodeLabel(sup.id);
+              <div style={{ background: '#151515', borderRadius: 8, overflow: 'hidden' }}>
+                <svg width="100%" height="420" viewBox="0 0 1000 600">
+                  <line x1="500" y1="0" x2="500" y2="600" stroke="#555" strokeDasharray="5 5" />
+                  <line x1="0" y1="300" x2="1000" y2="300" stroke="#555" strokeDasharray="5 5" />
+                  <circle cx="500" cy="300" r="5" fill="#fff" />
+                  {vectorLoads.map((v, i) => {
+                    const c = getVectorComponents(v)
+                    if (!c) return null
+                    const vmax = vectorResult
+                      ? Math.max(1, ...vectorLoads.map(x => Math.abs(Number(x.magnitude) || 0)), Math.abs(vectorResult.rMag))
+                      : Math.max(1, ...vectorLoads.map(x => Math.abs(Number(x.magnitude) || 0)))
+                    const sf = 210 / vmax
+                    const x2 = 500 + Number(v.magnitude) * Math.cos(c.drawRad) * sf
+                    const y2 = 300 - Number(v.magnitude) * Math.sin(c.drawRad) * sf
                     return (
-                      <g key={sup.id}>
-                        <text x={getSvgX(sup.x)} y="60" textAnchor="middle" fontSize="16" fill="#fff" fontWeight="bold">{label}</text>
-                        <RenderSupportSVG cx={getSvgX(sup.x)} cy={90} type={sup.type} dir={sup.direction || 'horizontal'} />
-                        <text x={getSvgX(sup.x)} y="132" textAnchor="middle" fontSize="13" fill="#aaa" fontWeight="bold">x={sup.x}</text>
+                      <g key={v.id}>
+                        {v.direction === 'out'
+                          ? <line x1="500" y1="300" x2={x2} y2={y2} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                          : <line x1={x2} y1={y2} x2="500" y2="300" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />}
+                        <text x={x2 + 10} y={y2 - 8} fill={theme.accent} fontWeight="bold">F{i + 1}</text>
                       </g>
                     )
                   })}
-                  
-                  {beamLoads.map(load => {
-                    if (load.type === 'point') {
-                      return (
-                        <g key={load.id}>
-                          <line x1={getSvgX(load.x)} y1="20" x2={getSvgX(load.x)} y2="70" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                          <text x={getSvgX(load.x)} y="15" textAnchor="middle" fontSize="14" fill={theme.accent} fontWeight="bold">P = {load.magnitude} {forceUnit}</text>
-                        </g>
-                      )
-                    } else if (load.type === 'moment') {
-                      const mx = getSvgX(load.x);
-                      const isCW = load.direction === 'cw';
-                      return (
-                        <g key={load.id}>
-                          <path d={isCW ? `M ${mx-20} 40 A 20 20 0 0 1 ${mx+20} 40` : `M ${mx+20} 40 A 20 20 0 0 0 ${mx-20} 40`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                          <text x={mx} y="20" textAnchor="middle" fontSize="14" fill={theme.accent} fontWeight="bold">M = {load.magnitude} {forceUnit}.m</text>
-                        </g>
-                      )
-                    } else {
-                      return renderDistributedLoadArrows(getSvgX(load.start_x), 75, getSvgX(load.end_x), 75, 0, load.magnitude);
-                    }
-                  })}
+                  {vectorResult?.rMag > 1e-8 && (
+                    <line
+                      x1="500" y1="300"
+                      x2={500 + vectorResult.rMag * Math.cos(vectorResult.rAng * Math.PI / 180) * (210 / Math.max(1, ...vectorLoads.map(v => Math.abs(Number(v.magnitude) || 0))))}
+                      y2={300 - vectorResult.rMag * Math.sin(vectorResult.rAng * Math.PI / 180) * (210 / Math.max(1, ...vectorLoads.map(v => Math.abs(Number(v.magnitude) || 0))))}
+                      stroke={theme.supportOrange} strokeWidth="5" markerEnd="url(#arrowReaction)"
+                    />
+                  )}
                 </svg>
               </div>
 
-              {beamReactions.length > 0 && (
-                <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
-                  <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
-                  <svg viewBox="0 0 1000 150" style={{ width: '100%', height: 'auto', backgroundColor: '#151515' }}>
-                    <rect x="50" y="65" width="900" height="12" fill="#444" stroke="#666" strokeWidth="1.5" />
-                    {beamSupports.map(sup => {
-                      const rx = getSvgX(sup.x);
-                      const foundRx = beamReactions.find(r => Math.abs(r.support_x - sup.x) < 0.01);
-                      const forceVal = foundRx ? foundRx.force_kN : 0;
-                      const label = getBeamNodeLabel(sup.id);
-                      const textAnchorPos = rx > 850 ? rx - 35 : rx;
-                      return (
-                        <g key={`fbd-${sup.id}`}>
-                          {sup.type !== 'free' && (
-                            <>
-                              <line x1={rx} y1={120} x2={rx} y2={80} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
-                              <text x={textAnchorPos} y="135" textAnchor="middle" fontSize="13" fill={theme.supportOrange} fontWeight="bold">R_{label} = {forceVal.toFixed(2)} {forceUnit}</text>
-                            </>
-                          )}
-                          <RenderSupportSVG cx={rx} cy={80} type={sup.type} dir={sup.direction || 'horizontal'} />
-                        </g>
-                      );
-                    })}
-                  </svg>
+              <div style={{ marginTop: 20, background: '#1A1A1A', padding: 15, borderRadius: 8 }}>
+                <button
+                  style={{ ...buttonStyle, marginBottom: 15 }}
+                  onClick={() => setVectorLoads(prev => [...prev, {
+                    id: Date.now(), magnitude: 50, angle: 0,
+                    quadrant: 1, refAxis: 'x', direction: 'out'
+                  }])}
+                >
+                  + Add Force
+                </button>
+
+                {vectorLoads.map((v, i) => (
+                  <div key={v.id} style={{
+                    display: 'flex', gap: 8, alignItems: 'center',
+                    flexWrap: 'wrap', padding: '10px 0', borderBottom: '1px dashed #333'
+                  }}>
+                    <b>F{i + 1}</b>
+                    <label>Mag <input type="number" value={v.magnitude} onChange={e => updateVectorLoad(v.id, 'magnitude', e.target.value)} style={{ ...inputStyle, width: 70 }} /></label>
+                    <label>θ <input type="number" min="0" max="90" value={v.angle} onChange={e => updateVectorLoad(v.id, 'angle', e.target.value)} style={{ ...inputStyle, width: 60 }} /></label>
+                    <select value={v.quadrant} onChange={e => updateVectorLoad(v.id, 'quadrant', Number(e.target.value))} style={inputStyle}>
+                      <option value="1">Q1</option><option value="2">Q2</option><option value="3">Q3</option><option value="4">Q4</option>
+                    </select>
+                    <select value={v.refAxis} onChange={e => updateVectorLoad(v.id, 'refAxis', e.target.value)} style={inputStyle}>
+                      <option value="x">from X</option><option value="y">from Y</option>
+                    </select>
+                    <select value={v.direction} onChange={e => updateVectorLoad(v.id, 'direction', e.target.value)} style={inputStyle}>
+                      <option value="out">Out</option><option value="in">In</option>
+                    </select>
+                    <button style={buttonStyle} onClick={() => setVectorLoads(prev => prev.filter(x => x.id !== v.id))}>✕</button>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ textAlign: 'center', marginTop: 18 }}>
+                <button style={buttonStyle} onClick={analyzeVectors} disabled={!vectorLoads.length}>Resolve Force Vectors</button>
+              </div>
+
+              {vectorResult && (
+                <div style={{ marginTop: 20, padding: 15, borderLeft: `5px solid ${theme.accent}`, background: '#1A1A1A' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead><tr><th style={{ textAlign: 'left' }}>Force</th><th>Fx</th><th>Fy</th></tr></thead>
+                    <tbody>
+                      {vectorResult.steps.map(s => (
+                        <tr key={s.id}>
+                          <td>{s.name}</td>
+                          <td style={{ textAlign: 'right' }}>{formatNumber(s.fx)} {vectorUnit}</td>
+                          <td style={{ textAlign: 'right' }}>{formatNumber(s.fy)} {vectorUnit}</td>
+                        </tr>
+                      ))}
+                      <tr style={{ borderTop: '2px solid #555' }}>
+                        <td><b>Σ</b></td>
+                        <td style={{ textAlign: 'right' }}><b>{formatNumber(vectorResult.sumFx)} {vectorUnit}</b></td>
+                        <td style={{ textAlign: 'right' }}><b>{formatNumber(vectorResult.sumFy)} {vectorUnit}</b></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p><b>|R| = {formatNumber(vectorResult.rMag)} {vectorUnit}</b></p>
+                  <p><b>Direction = {formatNumber(vectorResult.rAng)}° ({vectorResult.dirSymbol})</b></p>
                 </div>
               )}
+            </div>
+          )}
 
-              {chartData.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                  
-                  <div style={{ display: 'flex', gap: '30px', justifyContent: 'center', marginBottom: '15px', color: '#fff', fontSize: '0.95rem', fontFamily: 'monospace', fontWeight: 'bold' }}>
-                     <span>|V| max = {maxAbsoluteShear.toFixed(2)} {forceUnit}</span>
-                     <span>|M| max = {maxAbsoluteMoment.toFixed(2)} {forceUnit}.m</span>
-                  </div>
+          {/* ================= BEAM ================= */}
+          {activeTab === 'beam' && (
+            <div className="report-document">
+              <h1>Beam Analysis</h1>
+              <p style={{ color: '#888' }}>Reactions, SFD and BMD are obtained from the configured beam solver.</p>
 
-                  <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
-                    <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>3. Shear Force Diagram (SFD)</h4>
-                    <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
-                      <ResponsiveContainer>
-                        <AreaChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" />
-                          <XAxis dataKey="x" ticks={optimizedTicks} domain={[0, safeBeamLength]} type="number" stroke="#888" />
-                          <YAxis tickFormatter={formatYAxis} stroke="#888" />
-                          <Tooltip contentStyle={{ backgroundColor: '#222', borderColor: '#444', color: '#fff' }} />
-                          <Area type="stepAfter" dataKey="shear" stroke={theme.accent} strokeWidth={2} fill="#252525" fillOpacity={0.8} />
-                          {shearExtremes.max && (
-                            <ReferenceDot x={shearExtremes.max.x} y={shearExtremes.max.shear} r={4} fill={theme.accent} stroke="#fff" label={{ value: 'Max: ' + shearExtremes.max.shear.toFixed(2), position: 'top', fill: '#fff', fontSize: 12, fontWeight: 'bold' }} />
-                          )}
-                          {shearExtremes.min && shearExtremes.min.shear !== shearExtremes.max?.shear && (
-                            <ReferenceDot x={shearExtremes.min.x} y={shearExtremes.min.shear} r={4} fill={theme.accent} stroke="#fff" label={{ value: 'Min: ' + shearExtremes.min.shear.toFixed(2), position: 'bottom', fill: '#fff', fontSize: 12, fontWeight: 'bold' }} />
-                          )}
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                  
-                  <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
-                    <h4 style={{ margin: '0 0 10px 0', color: theme.textMain }}>4. Bending Moment Diagram (BMD)</h4>
-                    <div className="print-chart-container" style={{ width: '100%', height: '250px' }}>
-                      <ResponsiveContainer>
-                        <AreaChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" />
-                          <XAxis dataKey="x" ticks={optimizedTicks} domain={[0, safeBeamLength]} type="number" stroke="#888" />
-                          <YAxis tickFormatter={formatYAxis} stroke="#888" />
-                          <Tooltip contentStyle={{ backgroundColor: '#222', borderColor: '#444', color: '#fff' }} />
-                          <Area type="linear" dataKey="moment" stroke={theme.supportOrange} strokeWidth={2} fill="#252525" fillOpacity={0.8} />
-                          {momentExtremes.max && (
-                            <ReferenceDot x={momentExtremes.max.x} y={momentExtremes.max.moment} r={4} fill={theme.supportOrange} stroke="#fff" label={{ value: 'Max: ' + momentExtremes.max.moment.toFixed(2), position: 'top', fill: '#fff', fontSize: 12, fontWeight: 'bold' }} />
-                          )}
-                          {momentExtremes.min && momentExtremes.min.moment !== momentExtremes.max?.moment && (
-                            <ReferenceDot x={momentExtremes.min.x} y={momentExtremes.min.moment} r={4} fill={theme.supportOrange} stroke="#fff" label={{ value: 'Min: ' + momentExtremes.min.moment.toFixed(2), position: 'bottom', fill: '#fff', fontSize: 12, fontWeight: 'bold' }} />
-                          )}
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 15 }}>
+                <button style={buttonStyle} onClick={() => loadBeamPreset('simply-supported')}>Simply Supported</button>
+                <button style={buttonStyle} onClick={() => loadBeamPreset('overhanging')}>Overhanging</button>
+                <button style={buttonStyle} onClick={() => loadBeamPreset('cantilever')}>Cantilever</button>
+                <button style={buttonStyle} onClick={handleUndoBeam} disabled={!beamHistory.length}>Undo</button>
+              </div>
 
-                  <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
-                    <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>Equilibrium Reactions & Calculations</h4>
-                    <div className="print-expand" style={{ backgroundColor: '#151515', padding: '10px', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace', maxHeight: '150px', overflowY: 'auto', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
-                      {beamSteps.map((step, i) => <div key={i} style={{ marginBottom: '4px' }}>{step}</div>)}
-                    </div>
+              <div style={{ background: '#151515', padding: 15, borderRadius: 8 }}>
+                <svg viewBox="0 0 1000 190" style={{ width: '100%' }}>
+                  <rect x="50" y="80" width="900" height="15" fill="#444" />
+                  {beamSupports.map(s => {
+                    const x = getSvgX(s.x)
+                    return (
+                      <g key={s.id}>
+                        <text x={x} y="60" fill="#fff" textAnchor="middle" fontWeight="bold">{getBeamNodeLabel(s.id)}</text>
+                        <RenderSupportSVG cx={x} cy={95} type={s.type} dir={s.direction} />
+                        <text x={x} y="135" fill="#aaa" textAnchor="middle" fontSize="12">x={s.x} m</text>
+                      </g>
+                    )
+                  })}
+                  {beamLoads.map(l => {
+                    if (l.type === 'point') {
+                      const x = getSvgX(l.x)
+                      return <g key={l.id}>
+                        <line x1={x} y1="20" x2={x} y2="75" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                        <text x={x} y="16" fill={theme.accent} textAnchor="middle" fontSize="12">P={l.magnitude} {forceUnit}</text>
+                      </g>
+                    }
+                    if (l.type === 'moment') {
+                      const x = getSvgX(l.x)
+                      return <g key={l.id}>
+                        <circle cx={x} cy="50" r="18" fill="none" stroke={theme.accent} strokeWidth="3" />
+                        <text x={x} y="20" fill={theme.accent} textAnchor="middle" fontSize="12">M={l.magnitude} kN·m</text>
+                      </g>
+                    }
+                    return <g key={l.id}>{renderDistributedLoadArrows(getSvgX(l.start_x), 80, getSvgX(l.end_x), 80, 0, l.magnitude, forceUnit)}</g>
+                  })}
+                  <text x="500" y="170" fill="#aaa" textAnchor="middle">L = {safeBeamLength} m</text>
+                </svg>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: 15, marginTop: 20 }}>
+                <div style={{ background: '#1A1A1A', padding: 15, borderRadius: 8 }}>
+                  <h3>Beam & Supports</h3>
+                  <label>Length (m)
+                    <input type="number" min="0.01" value={beamLength} onChange={e => setBeamLength(e.target.value)} style={{ ...inputStyle, display: 'block' }} />
+                  </label>
+                  <div style={{ marginTop: 12 }}>
+                    {beamSupports.map(s => (
+                      <div key={s.id} style={{ display: 'flex', gap: 5, marginBottom: 7, flexWrap: 'wrap' }}>
+                        <select value={s.type} onChange={e => updateBeamSupport(s.id, 'type', e.target.value)} style={inputStyle}>
+                          <option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option>
+                        </select>
+                        <input type="number" value={s.x} onChange={e => updateBeamSupport(s.id, 'x', e.target.value)} style={{ ...inputStyle, width: 65 }} />
+                        <button style={buttonStyle} onClick={() => { saveBeamState(); setBeamSupports(prev => prev.filter(x => x.id !== s.id)) }}>✕</button>
+                      </div>
+                    ))}
+                    <button style={buttonStyle} onClick={() => { saveBeamState(); setBeamSupports(prev => [...prev, { id: Date.now(), type: 'roller', x: safeBeamLength / 2, direction: 'horizontal' }]) }}>+ Support</button>
                   </div>
                 </div>
-              )}
 
-              <div style={{ display: 'flex', gap: '15px', marginTop: '20px', flexWrap: 'wrap' }}>
-                <div style={{ flex: '1.3', backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <h4 style={{ margin: 0, fontSize: '1rem' }}>Beam Length & Supports</h4>
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      <button onClick={handleUndoBeam} disabled={beamHistory.length === 0} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '4px 10px', borderRadius: '4px', cursor: beamHistory.length===0?'not-allowed':'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>Undo</button>
-                      <button onClick={addBeamSupport} style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #555', padding: '4px 10px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}>+ Support</button>
-                    </div>
+                <div style={{ background: '#1A1A1A', padding: 15, borderRadius: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <h3>Loads</h3>
+                    <select value={forceUnit} onChange={e => setForceUnit(e.target.value)} style={inputStyle}>
+                      <option>N</option><option>kN</option><option>lb</option><option>kip</option>
+                    </select>
                   </div>
-                  <div style={{ marginBottom: '10px' }}><label>Length (m): </label><input type="number" value={beamLength} onChange={(e) => setBeamLength(e.target.value)} style={inputStyle} /></div>
-                  
-                  {beamSupports.map(sup => (
-                    <div key={sup.id} style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px', paddingBottom: '8px', borderBottom: `1px dashed ${theme.border}` }}>
-                      <select value={sup.type} onChange={(e) => updateBeamSupport(sup.id, 'type', e.target.value)} style={{ padding: '4px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
-                        <option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option><option value="free">Free</option>
-                      </select>
-                      <select value={sup.direction || 'horizontal'} onChange={(e) => updateBeamSupport(sup.id, 'direction', e.target.value)} style={{ padding: '4px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
-                        <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
-                      </select>
-                      <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>x (m):</label>
-                      <input type="number" value={sup.x} onChange={(e) => updateBeamSupport(sup.id, 'x', Number(e.target.value))} style={{ width: '60px', padding: '4px' }} />
-                      <button onClick={() => removeBeamSupport(sup.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.8rem' }}>Del</button>
-                    </div>
-                  ))}
-                </div>
-
-                <div style={{ flex: '1.4', backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <h4 style={{ margin: 0, fontSize: '1rem' }}>Load Configuration</h4>
-                    <div>
-                      <button onClick={addBeamMomentLoad} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem', marginRight: '4px' }}>+ Moment</button>
-                      <button onClick={addBeamPointLoad} style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #555', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem', marginRight: '4px' }}>+ Point</button>
-                      <button onClick={addBeamDistLoad} style={{ backgroundColor: '#444', color: '#fff', border: '1px solid #666', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}>+ UDL</button>
-                    </div>
-                  </div>
-                  {beamLoads.map(load => (
-                    <div key={load.id} style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: `1px dashed ${theme.border}`, fontSize: '0.85rem' }}>
-                      {load.type === 'point' ? (
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 'bold', color: theme.accent }}>Point</span>
-                          <label>P:</label><input type="number" value={load.magnitude} onChange={(e) => updateBeamLoad(load.id, 'magnitude', Number(e.target.value))} style={{ width: '60px', padding: '2px' }} />
-                          <label>x:</label><input type="number" value={load.x} onChange={(e) => updateBeamLoad(load.id, 'x', Number(e.target.value))} style={{ width: '60px', padding: '2px' }} />
-                          <button onClick={() => removeBeamLoad(load.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
+                  {beamLoads.map(l => (
+                    <div key={l.id} style={{ padding: '8px 0', borderBottom: '1px dashed #333' }}>
+                      {l.type === 'point' && (
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                          <b>Point</b>
+                          <input type="number" value={l.magnitude} onChange={e => updateBeamLoad(l.id, 'magnitude', e.target.value)} style={{ ...inputStyle, width: 65 }} />
+                          <input type="number" value={l.x} onChange={e => updateBeamLoad(l.id, 'x', e.target.value)} style={{ ...inputStyle, width: 65 }} />
+                          <button style={buttonStyle} onClick={() => { saveBeamState(); setBeamLoads(prev => prev.filter(x => x.id !== l.id)) }}>✕</button>
                         </div>
-                      ) : load.type === 'moment' ? (
-                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                          <span style={{ fontWeight: 'bold', color: theme.accent }}>Moment</span>
-                          <label>M:</label><input type="number" value={load.magnitude} onChange={(e) => updateBeamLoad(load.id, 'magnitude', Number(e.target.value))} style={{ width: '60px', padding: '2px' }} />
-                          <select value={load.direction || 'cw'} onChange={(e) => updateBeamLoad(load.id, 'direction', e.target.value)} style={{ padding: '2px', fontFamily: '"Times New Roman", Times, serif' }}>
-                            <option value="cw">CW ↻</option>
-                            <option value="ccw">CCW ↺</option>
+                      )}
+                      {l.type === 'moment' && (
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                          <b>Moment</b>
+                          <input type="number" value={l.magnitude} onChange={e => updateBeamLoad(l.id, 'magnitude', e.target.value)} style={{ ...inputStyle, width: 65 }} />
+                          <select value={l.direction} onChange={e => updateBeamLoad(l.id, 'direction', e.target.value)} style={inputStyle}>
+                            <option value="cw">CW</option><option value="ccw">CCW</option>
                           </select>
-                          <label>x:</label><input type="number" value={load.x} onChange={(e) => updateBeamLoad(load.id, 'x', Number(e.target.value))} style={{ width: '60px', padding: '2px' }} />
-                          <button onClick={() => removeBeamLoad(load.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
+                          <input type="number" value={l.x} onChange={e => updateBeamLoad(l.id, 'x', e.target.value)} style={{ ...inputStyle, width: 65 }} />
+                          <button style={buttonStyle} onClick={() => { saveBeamState(); setBeamLoads(prev => prev.filter(x => x.id !== l.id)) }}>✕</button>
                         </div>
-                      ) : (
-                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 'bold', color: theme.udlOrange }}>UDL</span>
-                          <label>w:</label><input type="number" value={load.magnitude} onChange={(e) => updateBeamLoad(load.id, 'magnitude', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
-                          <label>Start:</label><input type="number" value={load.start_x} onChange={(e) => updateBeamLoad(load.id, 'start_x', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
-                          <label>End:</label><input type="number" value={load.end_x} onChange={(e) => updateBeamLoad(load.id, 'end_x', Number(e.target.value))} style={{ width: '50px', padding: '2px' }} />
-                          <button onClick={() => removeBeamLoad(load.id)} style={{ backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', padding: '2px 6px', borderRadius: '4px', cursor: 'pointer' }}>✕</button>
+                      )}
+                      {l.type === 'distributed' && (
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                          <b>UDL</b>
+                          <input type="number" value={l.magnitude} onChange={e => updateBeamLoad(l.id, 'magnitude', e.target.value)} style={{ ...inputStyle, width: 60 }} />
+                          <input type="number" value={l.start_x} onChange={e => updateBeamLoad(l.id, 'start_x', e.target.value)} style={{ ...inputStyle, width: 60 }} />
+                          <input type="number" value={l.end_x} onChange={e => updateBeamLoad(l.id, 'end_x', e.target.value)} style={{ ...inputStyle, width: 60 }} />
+                          <button style={buttonStyle} onClick={() => { saveBeamState(); setBeamLoads(prev => prev.filter(x => x.id !== l.id)) }}>✕</button>
                         </div>
                       )}
                     </div>
                   ))}
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <button onClick={analyzeBeam} style={{ padding: '14px 24px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer' }}>Analyze Beam</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ======================= TAB 2: TRUSS BUILDER ======================= */}
-          {activeTab === 'truss' && (
-            <div className="report-document">
-              <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
-                <div>
-                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Truss Analysis Report</h1>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: CHU-CALC Advanced Framework Evaluation</p>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
-                <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Pratt Truss</button>
-              </div>
-
-              <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A' }}>
-                <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px' }}>Undo</button>
-                    <button onClick={clearTrussCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
-                      <select value={gridScale} onChange={(e) => setGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
-                        {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0].map(v => <option key={v} value={v}>{v.toFixed(1)}m</option>)}
-                      </select>
-                    </label>
-                    <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Unit: 
-                      <select value={trussUnit} onChange={(e) => setTrussUnit(e.target.value)} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
-                        <option value="N">N</option><option value="kN">kN</option><option value="Ton">Ton</option>
-                      </select>
-                    </label>
+                  <div style={{ marginTop: 10 }}>
+                    <button style={buttonStyle} onClick={() => { saveBeamState(); setBeamLoads(prev => [...prev, { id: Date.now(), type: 'point', magnitude: 5, x: safeBeamLength / 2 }]) }}>+ Point</button>{' '}
+                    <button style={buttonStyle} onClick={() => { saveBeamState(); setBeamLoads(prev => [...prev, { id: Date.now(), type: 'distributed', magnitude: 2, start_x: 0, end_x: safeBeamLength / 2 }]) }}>+ UDL</button>{' '}
+                    <button style={buttonStyle} onClick={() => { saveBeamState(); setBeamLoads(prev => [...prev, { id: Date.now(), type: 'moment', magnitude: 10, x: safeBeamLength / 2, direction: 'cw' }]) }}>+ Moment</button>
                   </div>
                 </div>
-
-                <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#151515', display: 'flex', justifyContent: 'center' }}>
-                  <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#151515' }}>
-                    <defs>
-                      <pattern id="gridT" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill="url(#gridT)" />
-                    {renderDimensions(nodes, gridScale)}
-                    {elements.map(el => {
-                      const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
-                      if (!n1 || !n2) return null;
-                      return <line key={el.id} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="4" strokeLinecap="round" />
-                    })}
-                    {Object.entries(trussSupports).map(([nId, supData]) => {
-                      const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                      return (
-                        <g key={`sup-${nId}`}>
-                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
-                        </g>
-                      )
-                    })}
-                    {Object.entries(trussLoads).map(([nId, force]) => {
-                      const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                      return (
-                        <g key={`load-${nId}`}>
-                          {Number(force.fy) !== 0 && force.fy !== undefined && (
-                            <>
-                              <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                              <text x={node.x + 12} y={node.y - 25} fill={theme.accent} fontSize="13" fontWeight="bold">{force.fy} {trussUnit}</text>
-                            </>
-                          )}
-                          {Number(force.fx) !== 0 && force.fx !== undefined && (
-                            <>
-                              <line x1={force.fx > 0 ? node.x - 50 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 50} y2={node.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                              <text x={node.x - 20} y={node.y - 15} fill={theme.accent} fontSize="13" fontWeight="bold">{force.fx} {trussUnit}</text>
-                            </>
-                          )}
-                        </g>
-                      )
-                    })}
-                    {nodes.map(node => (
-                      <g key={node.id} style={{ cursor: 'pointer' }}>
-                        <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleTrussNodeClick(e, node)} />
-                        <circle cx={node.x} cy={node.y} r={selectedNodeId === node.id ? 9 : 6} fill={selectedNodeId === node.id ? theme.accent : "#222"} stroke="#fff" strokeWidth="2" style={{ pointerEvents: 'none' }} />
-                        <text x={node.x + 10} y={node.y - 10} fill="#fff" fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
-                      </g>
-                    ))}
-                  </svg>
-                </div>
               </div>
 
-              {nodes.length > 0 && (
-                <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
-                  <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#151515', overflow: 'auto' }}>
-                    
-                    <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#151515' }}>
-                      <defs>
-                        <pattern id="gridT_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
-                      </defs>
-                      <rect width="100%" height="100%" fill="url(#gridT_FBD)" />
-                      
-                      {elements.map(el => {
-                        const n1 = nodes.find(n => n.id === el.n1), n2 = nodes.find(n => n.id === el.n2);
-                        if (!n1 || !n2) return null;
-                        
-                        const memberName1 = `${n1.name}${n2.name}`;
-                        const memberName2 = `${n2.name}${n1.name}`;
-                        const resMember = trussAnalysisResult?.members?.find(m => m.name === memberName1 || m.name === memberName2);
-                        const isZeroForce = resMember && resMember.status === "Zero-Force";
+              <div style={{ textAlign: 'center', margin: 20 }}>
+                <button style={{ ...buttonStyle, padding: '13px 25px' }} onClick={analyzeBeam}>Analyze Beam</button>
+              </div>
 
-                        return (
-                          <g key={`t-fbd-el-${el.id}`}>
-                            <line x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={isZeroForce ? '#555' : theme.memberGray} strokeWidth={isZeroForce ? "2.5" : "3.5"} strokeDasharray={isZeroForce ? "4,4" : "none"} strokeLinecap="round" />
-                            {isZeroForce && (
-                              <text x={(n1.x + n2.x)/2} y={(n1.y + n2.y)/2 - 8} fill="#888" fontSize="11" fontWeight="bold" textAnchor="middle">0-Force</text>
-                            )}
-                          </g>
-                        );
-                      })}
-                      {Object.entries(trussSupports).map(([nId, supData]) => {
-                        const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                        const rxn = trussLocalData.rxns[node.id];
-                        const hasRun = Object.keys(trussLocalData.rxns).length > 0;
-                        const fyText = hasRun ? (rxn ? Math.abs(rxn.fy).toFixed(2) : "0.00") : `R_${node.name}y`;
-                        const fxText = hasRun ? (rxn ? Math.abs(rxn.fx).toFixed(2) : "0.00") : `R_${node.name}x`;
-                        const isFyPos = hasRun ? (rxn && rxn.fy >= 0) : true;
-                        const isFxPos = hasRun ? (rxn && rxn.fx >= 0) : true;
-
-                        return (
-                          <g key={`t-fbd-sup-${nId}`}>
-                            {supData.type !== 'free' && (
-                              <>
-                                <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
-                                <text x={node.x + 12} y={isFyPos ? node.y + 30 : node.y - 30} fontSize="12" fill={theme.supportOrange} fontWeight="bold">{fyText}</text>
-                              </>
-                            )}
-                            {(supData.type === 'pin' || supData.type === 'fixed') && (
-                              <>
-                                <line x1={isFxPos ? node.x - 45 : node.x + 45} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
-                                <text x={isFxPos ? node.x - 45 : node.x + 55} y={node.y - 10} fontSize="12" fill={theme.supportOrange} fontWeight="bold">{fxText}</text>
-                              </>
-                            )}
-                            <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
-                          </g>
-                        );
-                      })}
-                      {Object.entries(trussLoads).map(([nId, force]) => {
-                        const node = nodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                        return (
-                           <g key={`t-fbd-load-${nId}`}>
-                            {Number(force.fy) !== 0 && force.fy !== undefined && (
-                              <>
-                                <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
-                                <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.accent} fontWeight="bold">{force.fy} {trussUnit}</text>
-                              </>
-                            )}
-                            {Number(force.fx) !== 0 && force.fx !== undefined && (
-                              <>
-                                <line x1={force.fx > 0 ? node.x - 40 : node.x + 10} y1={node.y} x2={force.fx > 0 ? node.x - 10 : node.x + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
-                                <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.accent} fontWeight="bold">{force.fx} {trussUnit}</text>
-                              </>
-                            )}
-                          </g>
-                        );
-                      })}
-                      {nodes.map(node => (
-                        <g key={`t-fbd-n-${node.id}`}>
-                          <circle cx={node.x} cy={node.y} r={4} fill="#fff" />
-                          <text x={node.x + 8} y={node.y - 8} fontSize="12" fill="#fff" fontWeight="bold">{node.name}</text>
-                        </g>
-                      ))}
-                    </svg>
-                  </div>
+              {beamReactions.length > 0 && (
+                <div style={{ padding: 15, background: '#1A1A1A', borderLeft: `5px solid ${theme.supportOrange}` }}>
+                  <h3>Support Reactions</h3>
+                  {beamReactions.map((r, i) => (
+                    <span key={i} style={{ marginRight: 25 }}>
+                      R @ x={r.support_x}: <b>{formatNumber(r.forceDisplay)} {forceUnit}</b>
+                    </span>
+                  ))}
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: '15px', marginBottom: '20px', alignItems: 'center' }}>
-                <div style={{ flex: 1, backgroundColor: '#1A1A1A', padding: '12px', borderRadius: '8px', border: `1px solid ${theme.border}` }}>
-                  {nodes.find(n => n.id === selectedNodeId) ? (
-                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                      <strong style={{ color: '#fff' }}>Node {nodes.find(n=>n.id===selectedNodeId).name}:</strong>
-                      <select value={trussSupports[selectedNodeId]?.type || 'none'} onChange={(e) => handleSupportTypeChange(selectedNodeId, e.target.value)} style={{ fontFamily: '"Times New Roman", Times, serif' }}>
-                        <option value="none">Support: None</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option><option value="free">Free</option>
-                      </select>
-                      <select value={trussSupports[selectedNodeId]?.direction || 'horizontal'} onChange={(e) => { saveTrussState(); setTrussSupports(prev => ({ ...prev, [selectedNodeId]: { ...prev[selectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
-                        <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
-                      </select>
-                      <input type="number" placeholder="Fx Load" value={trussLoads[selectedNodeId]?.fx || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fx', e.target.value)} style={{ width: '80px', padding: '4px' }} />
-                      <input type="number" placeholder="Fy Load" value={trussLoads[selectedNodeId]?.fy || ''} onChange={(e) => handleTrussLoadChange(selectedNodeId, 'fy', e.target.value)} style={{ width: '80px', padding: '4px' }} />
+              {chartData.length > 0 && (
+                <div style={{ marginTop: 20, display: 'grid', gap: 15 }}>
+                  <div style={{ padding: 15, background: '#1A1A1A' }}>
+                    <b>Maximum |V| = {formatNumber(maxAbsoluteShear)} kN</b>
+                    <div style={{ height: 260 }}>
+                      <ResponsiveContainer>
+                        <AreaChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" />
+                          <XAxis dataKey="x" type="number" domain={[0, safeBeamLength]} ticks={optimizedTicks} />
+                          <YAxis tickFormatter={formatYAxis} />
+                          <Tooltip />
+                          <Area type="stepAfter" dataKey="shear" stroke={theme.accent} fill="#252525" fillOpacity=".8" />
+                          {chartShear.max && <ReferenceDot x={chartShear.max.x} y={chartShear.max.shear} r={4} label={`Max ${formatNumber(chartShear.max.shear)}`} />}
+                          {chartShear.min && <ReferenceDot x={chartShear.min.x} y={chartShear.min.shear} r={4} label={`Min ${formatNumber(chartShear.min.shear)}`} />}
+                        </AreaChart>
+                      </ResponsiveContainer>
                     </div>
-                  ) : <span style={{ fontSize: '0.9rem', color: '#888' }}>Click any node on canvas to configure support & point load.</span>}
+                  </div>
+                  <div style={{ padding: 15, background: '#1A1A1A' }}>
+                    <b>Maximum |M| = {formatNumber(maxAbsoluteMoment)} kN·m</b>
+                    <div style={{ height: 260 }}>
+                      <ResponsiveContainer>
+                        <AreaChart data={chartData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#333" />
+                          <XAxis dataKey="x" type="number" domain={[0, safeBeamLength]} ticks={optimizedTicks} />
+                          <YAxis tickFormatter={formatYAxis} />
+                          <Tooltip />
+                          <Area type="linear" dataKey="moment" stroke={theme.supportOrange} fill="#252525" fillOpacity=".8" />
+                          {chartMoment.max && <ReferenceDot x={chartMoment.max.x} y={chartMoment.max.moment} r={4} label={`Max ${formatNumber(chartMoment.max.moment)}`} />}
+                          {chartMoment.min && <ReferenceDot x={chartMoment.min.x} y={chartMoment.min.moment} r={4} label={`Min ${formatNumber(chartMoment.min.moment)}`} />}
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <pre style={{ whiteSpace: 'pre-wrap', background: '#151515', padding: 15 }}>{beamSteps.join('\n')}</pre>
                 </div>
-                <button onClick={runTrussAnalysis} disabled={nodes.length < 3} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: nodes.length < 3 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: nodes.length < 3 ? 'not-allowed' : 'pointer' }}>Analyze Truss</button>
+              )}
+            </div>
+          )}
+
+          {/* ================= TRUSS ================= */}
+          {activeTab === 'truss' && (
+            <div className="report-document">
+              <h1>Truss Analysis</h1>
+              <p style={{ color: '#888' }}>
+                Build a planar truss, define supports and nodal loads, then solve reactions and member forces.
+              </p>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <button style={buttonStyle} onClick={loadTrussPreset}>Pratt Truss</button>
+                <button style={buttonStyle} onClick={handleUndoTruss} disabled={!trussHistory.length}>Undo</button>
+                <button style={buttonStyle} onClick={clearTrussCanvas}>Clear</button>
+                <label style={{ marginLeft: 'auto' }}>Grid
+                  <select value={gridScale} onChange={e => setGridScale(Number(e.target.value))} style={{ ...inputStyle, marginLeft: 5 }}>
+                    {Array.from({ length: 30 }, (_, i) => (i + 1) / 10).map(v => <option key={v} value={v}>{v.toFixed(1)} m</option>)}
+                  </select>
+                </label>
+                <label>Unit
+                  <select value={trussUnit} onChange={e => setTrussUnit(e.target.value)} style={{ ...inputStyle, marginLeft: 5 }}>
+                    <option>N</option><option>kN</option><option>lb</option><option>kip</option>
+                  </select>
+                </label>
               </div>
 
-              {trussAnalysisResult && (
-                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
-                  <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>3. Static Equilibrium & Support Reaction Steps</h4>
-                  <div style={{ backgroundColor: '#151515', padding: '10px', borderRadius: '6px', fontSize: '0.85rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
-                    {trussLocalData.steps.map((step, idx) => (
-                      <div key={idx} style={{ marginBottom: '4px' }}>{step}</div>
-                    ))}
-                  </div>
+              <div style={{ overflow: 'auto', background: '#151515', borderRadius: 8 }}>
+                <svg width="1400" height="600" onClick={handleTrussCanvasClick}>
+                  <defs>
+                    <pattern id="trussGrid" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse">
+                      <path d={`M${PIXELS_PER_GRID} 0 L0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" />
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#trussGrid)" />
+                  {renderDimensions(nodes, gridScale)}
+                  {elements.map(el => {
+                    const a = nodes.find(n => n.id === el.n1), b = nodes.find(n => n.id === el.n2)
+                    return a && b ? <line key={el.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#fff" strokeWidth="4" /> : null
+                  })}
+                  {Object.entries(trussSupports).map(([id, s]) => {
+                    const n = nodes.find(x => String(x.id) === id)
+                    return n ? <RenderSupportSVG key={id} cx={n.x} cy={n.y} type={s.type} dir={s.direction} /> : null
+                  })}
+                  {Object.entries(trussLoads).map(([id, f]) => {
+                    const n = nodes.find(x => String(x.id) === id)
+                    if (!n) return null
+                    return <g key={id}>
+                      {Number(f.fy) !== 0 && <line x1={n.x} y1={Number(f.fy) > 0 ? n.y + 50 : n.y - 50} x2={n.x} y2={Number(f.fy) > 0 ? n.y + 10 : n.y - 10} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />}
+                      {Number(f.fx) !== 0 && <line x1={Number(f.fx) > 0 ? n.x - 50 : n.x + 50} y1={n.y} x2={Number(f.fx) > 0 ? n.x - 10 : n.x + 10} y2={n.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />}
+                    </g>
+                  })}
+                  {nodes.map(n => (
+                    <g key={n.id}>
+                      <circle cx={n.x} cy={n.y} r="30" fill="transparent" onClick={e => handleTrussNodeClick(e, n)} />
+                      <circle cx={n.x} cy={n.y} r={selectedNodeId === n.id ? 9 : 6} fill={selectedNodeId === n.id ? theme.accent : '#222'} stroke="#fff" strokeWidth="2" pointerEvents="none" />
+                      <text x={n.x + 10} y={n.y - 10} fill="#fff" pointerEvents="none">{n.name}</text>
+                    </g>
+                  ))}
+                </svg>
+              </div>
 
-                  <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>4. Truss Equilibrium & Member Forces</h4>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                    <thead><tr style={{ backgroundColor: '#222', borderBottom: `2px solid #555` }}><th style={{ padding: '6px', textAlign: 'left' }}>Member</th><th style={{ padding: '6px', textAlign: 'right' }}>Force ({trussUnit})</th><th style={{ padding: '6px', textAlign: 'center' }}>Status</th></tr></thead>
+              <div style={{ marginTop: 15, padding: 15, background: '#1A1A1A', borderRadius: 8 }}>
+                {selectedNodeId ? (
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <b>Node {nodes.find(n => n.id === selectedNodeId)?.name}</b>
+                    <select value={trussSupports[selectedNodeId]?.type || 'none'} onChange={e => handleSupportTypeChange(selectedNodeId, e.target.value)} style={inputStyle}>
+                      <option value="none">None</option><option value="pin">Pin</option><option value="roller">Roller</option>
+                    </select>
+                    <select
+                      value={trussSupports[selectedNodeId]?.direction || 'horizontal'}
+                      onChange={e => {
+                        saveTrussState()
+                        setTrussSupports(prev => ({
+                          ...prev,
+                          [selectedNodeId]: { ...(prev[selectedNodeId] || {}), direction: e.target.value }
+                        }))
+                      }}
+                      style={inputStyle}
+                    >
+                      <option value="horizontal">Horizontal surface</option>
+                      <option value="vertical">Vertical surface</option>
+                    </select>
+                    <input placeholder={`Fx (${trussUnit})`} type="number" value={trussLoads[selectedNodeId]?.fx ?? ''} onChange={e => handleTrussLoadChange(selectedNodeId, 'fx', e.target.value)} style={{ ...inputStyle, width: 85 }} />
+                    <input placeholder={`Fy (${trussUnit})`} type="number" value={trussLoads[selectedNodeId]?.fy ?? ''} onChange={e => handleTrussLoadChange(selectedNodeId, 'fy', e.target.value)} style={{ ...inputStyle, width: 85 }} />
+                  </div>
+                ) : (
+                  <span style={{ color: '#888' }}>Click a node to set supports or nodal loads. Click two nodes to create a member.</span>
+                )}
+              </div>
+
+              <div style={{ textAlign: 'center', margin: 18 }}>
+                <button style={buttonStyle} disabled={nodes.length < 2 || !elements.length} onClick={runTrussAnalysis}>Analyze Truss</button>
+              </div>
+
+              {trussLocalData.analyzed && (
+                <pre style={{ whiteSpace: 'pre-wrap', background: '#151515', padding: 15, borderLeft: `5px solid ${theme.accent}` }}>
+                  {trussLocalData.steps.join('\n')}
+                </pre>
+              )}
+
+              {trussAnalysisResult?.members && (
+                <div style={{ marginTop: 15, overflowX: 'auto' }}>
+                  <h3>Member Forces</h3>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr><th style={{ textAlign: 'left' }}>Member</th><th>Force</th><th>Status</th></tr>
+                    </thead>
                     <tbody>
                       {trussAnalysisResult.members.map((m, i) => (
-                        <tr key={i} style={{ borderBottom: `1px solid #333`, backgroundColor: m.status === 'Zero-Force' ? '#2c2514' : 'transparent' }}>
-                          <td style={{ padding: '6px' }}>{m.name}</td>
-                          <td style={{ padding: '6px', textAlign: 'right' }}>{Math.abs(m.force).toLocaleString()}</td>
-                          <td style={{ padding: '6px', textAlign: 'center', fontWeight: 'bold', color: m.status === 'Zero-Force' ? '#D69E2E' : 'inherit' }}>{m.status}</td>
+                        <tr key={i} style={{ borderTop: '1px solid #333' }}>
+                          <td>{m.name}</td>
+                          <td style={{ textAlign: 'right' }}>{formatNumber(knToForce(m.force, trussUnit))} {trussUnit}</td>
+                          <td style={{ textAlign: 'center' }}>{m.status}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1569,343 +1956,138 @@ function App() {
             </div>
           )}
 
-          {/* ======================= TAB 3: FRAME ANALYSIS (Statics Only) ======================= */}
+          {/* ================= FRAME ================= */}
           {activeTab === 'frame' && (
             <div className="report-document">
-              <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
-                <div>
-                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Frame Analysis: Engineering Statics</h1>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Project: Equilibrium & Reactions Evaluation</p>
-                </div>
+              <h1>Frame Reactions — Engineering Statics</h1>
+              <p style={{ color: '#888' }}>
+                This module calculates global support reactions only. It is not a stiffness-method/internal-force frame solver.
+              </p>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+                <button style={buttonStyle} onClick={loadFramePreset}>Portal Frame</button>
+                <button style={buttonStyle} onClick={handleUndoFrame} disabled={!frameHistory.length}>Undo</button>
+                <button style={buttonStyle} onClick={clearFrameCanvas}>Clear</button>
+                <label>Force
+                  <select value={fForceUnit} onChange={e => setFForceUnit(e.target.value)} style={{ ...inputStyle, marginLeft: 5 }}>
+                    <option>N</option><option>kN</option><option>lb</option><option>kip</option>
+                  </select>
+                </label>
+                <label>Grid
+                  <select value={fGridScale} onChange={e => setFGridScale(Number(e.target.value))} style={{ ...inputStyle, marginLeft: 5 }}>
+                    {Array.from({ length: 30 }, (_, i) => (i + 1) / 10).map(v => <option key={v} value={v}>{v.toFixed(1)} m</option>)}
+                  </select>
+                </label>
               </div>
 
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
-                <button onClick={() => loadFramePreset('portal')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Portal Frame (UDL on Beam)</button>
-              </div>
-
-              <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A' }}>
-                <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={handleUndoFrame} disabled={frameHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: frameHistory.length===0?'not-allowed':'pointer', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px' }}>Undo</button>
-                    <button onClick={clearFrameCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Unit: 
-                      <select value={fForceUnit} onChange={(e) => setFForceUnit(e.target.value)} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
-                        <option value="N">N</option><option value="kN">kN</option><option value="kg">kg</option><option value="t">t</option>
-                      </select>
-                    </label>
-                    <label style={{ fontSize: '0.9rem', fontWeight: 'bold' }}>Grid: 
-                      <select value={fGridScale} onChange={(e) => setFGridScale(Number(e.target.value))} style={{ marginLeft: '5px', fontFamily: '"Times New Roman", Times, serif' }}>
-                        {[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 3.0].map(v => <option key={v} value={v}>{v.toFixed(1)}m</option>)}
-                      </select>
-                    </label>
-                  </div>
-                </div>
-
-                <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#151515', display: 'flex', justifyContent: 'center' }}>
-                  <svg width="1400" height="600" onClick={handleFrameCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#151515' }}>
-                    <defs>
-                      <pattern id="gridF" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
-                    </defs>
-                    <rect width="100%" height="100%" fill="url(#gridF)" />
-                    {renderDimensions(fNodes, fGridScale)}
-                    
-                    {fElements.map(el => {
-                      const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
-                      if (!n1 || !n2) return null;
-                      const distLoad = fDistLoads[el.id];
-                      const pointLoad = fPointLoadsOnElement[el.id];
-                      const isSelected = fSelectedElementId === el.id;
-
-                      let plX = n1.x, plY = n1.y;
-                      if (pointLoad && pointLoad.x !== undefined) {
-                        const totalLen = Math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2);
-                        const actualLenM = totalLen / PIXELS_PER_GRID * fGridScale;
-                        const ratio = actualLenM > 0 ? Math.min(Math.max(pointLoad.x / actualLenM, 0), 1) : 0;
-                        plX = n1.x + (n2.x - n1.x) * ratio;
-                        plY = n1.y + (n2.y - n1.y) * ratio;
-                      }
-
-                      return (
-                        <g key={el.id} onClick={(e) => handleFrameElementClick(e, el)} style={{ cursor: 'pointer' }}>
-                          <line x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={isSelected ? theme.accent : theme.memberGray} strokeWidth={isSelected ? "6" : "4"} strokeLinecap="round" />
-                          {renderDistributedLoadArrows(n1.x, n1.y, n2.x, n2.y, distLoad?.wx, distLoad?.wy)}
-                          {pointLoad && (
-                            <>
-                              {pointLoad.py && pointLoad.py !== 0 && (
-                                <g>
-                                  <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                                  <text x={plX + 12} y={plY - 20} fill={theme.accent} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
-                                </g>
-                              )}
-                              {pointLoad.px && pointLoad.px !== 0 && (
-                                <g>
-                                  <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                                  <text x={plX - 25} y={plY - 10} fill={theme.accent} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
-                                </g>
-                              )}
-                            </>
-                          )}
-                        </g>
-                      )
-                    })}
-
-                    {Object.entries(fSupports).map(([nId, supData]) => {
-                      const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                      return (
-                        <g key={`sup-${nId}`}>
-                          <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
-                        </g>
-                      )
-                    })}
-
-                    {Object.entries(fLoads).map(([nId, force]) => {
-                      const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                      return (
-                        <g key={`load-${nId}`}>
-                          {Number(force.fy) !== 0 && (
-                            <>
-                              <line x1={node.x} y1={force.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                              <text x={node.x + 12} y={node.y} fill={theme.accent} fontSize="13" fontWeight="bold">Fy = {force.fy} {fForceUnit}</text>
-                            </>
-                          )}
-                          {Number(force.fx) !== 0 && (
-                            <>
-                              <line x1={node.x} y1={force.fx > 0 ? node.x - 50 : node.x + 10} x2={node.x} y2={force.fx > 0 ? node.x - 10 : node.x + 50} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                              <text x={node.x - 15} y={node.y - 15} fill={theme.accent} fontSize="13" fontWeight="bold">Fx = {force.fx} {fForceUnit}</text>
-                            </>
-                          )}
-                          {Number(force.mz) !== 0 && (
-                            <g>
-                              <path d={force.mz < 0 ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                              <text x={node.x} y={node.y - 45} fill={theme.accent} fontSize="13" fontWeight="bold" textAnchor="middle">M = {Math.abs(force.mz)} {fForceUnit}.m</text>
-                            </g>
-                          )}
-                        </g>
-                      )
-                    })}
-
-                    {fNodes.map(node => (
-                      <g key={node.id} style={{ cursor: 'pointer' }}>
-                        <circle cx={node.x} cy={node.y} r={35} fill="transparent" onClick={(e) => handleFrameNodeClick(e, node)} />
-                        <circle cx={node.x} cy={node.y} r={fSelectedNodeId === node.id ? 9 : 6} fill={fSelectedNodeId === node.id ? theme.accent : "#222"} stroke="#fff" strokeWidth="2" style={{ pointerEvents: 'none' }} />
-                        <text x={node.x + 10} y={node.y - 10} fill="#fff" fontSize="13" fontWeight="bold" style={{ pointerEvents: 'none' }}>{node.name}</text>
+              <div style={{ overflow: 'auto', background: '#151515', borderRadius: 8 }}>
+                <svg width="1400" height="600" onClick={handleFrameCanvasClick}>
+                  <defs>
+                    <pattern id="frameGrid" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse">
+                      <path d={`M${PIXELS_PER_GRID} 0 L0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" />
+                    </pattern>
+                  </defs>
+                  <rect width="100%" height="100%" fill="url(#frameGrid)" />
+                  {renderDimensions(fNodes, fGridScale)}
+                  {fElements.map(el => {
+                    const a = fNodes.find(n => n.id === el.n1), b = fNodes.find(n => n.id === el.n2)
+                    if (!a || !b) return null
+                    const selected = fSelectedElementId === el.id
+                    const d = fDistLoads[el.id]
+                    const p = fPointLoadsOnElement[el.id]
+                    const loc = p ? framePointLocation(el, p) : null
+                    return (
+                      <g key={el.id} onClick={e => handleFrameElementClick(e, el)}>
+                        <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={selected ? theme.accent : '#fff'} strokeWidth={selected ? 6 : 4} />
+                        {renderDistributedLoadArrows(a.x, a.y, b.x, b.y, d?.wx, d?.wy, fForceUnit)}
+                        {loc && p?.py && <line x1={loc.x} y1={loc.y - 45} x2={loc.x} y2={loc.y - 10} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />}
+                        {loc && p?.px && <line x1={loc.x - 45} y1={loc.y} x2={loc.x - 10} y2={loc.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />}
                       </g>
-                    ))}
-                  </svg>
-                </div>
+                    )
+                  })}
+                  {Object.entries(fSupports).map(([id, s]) => {
+                    const n = fNodes.find(x => String(x.id) === id)
+                    return n ? <RenderSupportSVG key={id} cx={n.x} cy={n.y} type={s.type} dir={s.direction} /> : null
+                  })}
+                  {Object.entries(fLoads).map(([id, f]) => {
+                    const n = fNodes.find(x => String(x.id) === id)
+                    if (!n) return null
+                    return (
+                      <g key={id}>
+                        {Number(f.fy) !== 0 && <line x1={n.x} y1={Number(f.fy) > 0 ? n.y + 45 : n.y - 45} x2={n.x} y2={Number(f.fy) > 0 ? n.y + 10 : n.y - 10} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />}
+                        {Number(f.fx) !== 0 && <line x1={Number(f.fx) > 0 ? n.x - 45 : n.x + 45} y1={n.y} x2={Number(f.fx) > 0 ? n.x - 10 : n.x + 10} y2={n.y} stroke={theme.accent} strokeWidth="3" markerEnd="url(#arrowPoint)" />}
+                      </g>
+                    )
+                  })}
+                  {fNodes.map(n => (
+                    <g key={n.id}>
+                      <circle cx={n.x} cy={n.y} r="30" fill="transparent" onClick={e => handleFrameNodeClick(e, n)} />
+                      <circle cx={n.x} cy={n.y} r={fSelectedNodeId === n.id ? 9 : 6} fill={fSelectedNodeId === n.id ? theme.accent : '#222'} stroke="#fff" pointerEvents="none" />
+                      <text x={n.x + 10} y={n.y - 10} fill="#fff" pointerEvents="none">{n.name}</text>
+                    </g>
+                  ))}
+                </svg>
               </div>
 
-              {fNodes.length > 0 && frameLocalData.analyzed && (
-                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
-                  <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
-                  <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#151515', overflow: 'auto' }}>
-                    
-                    <svg width="1400" height="600" style={{ display: 'block', backgroundColor: '#151515' }}>
-                      <defs>
-                        <pattern id="gridF_FBD" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
-                      </defs>
-                      <rect width="100%" height="100%" fill="url(#gridF_FBD)" />
-                      
-                      {fElements.map(el => {
-                        const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
-                        if (!n1 || !n2) return null;
-                        return <line key={`f-fbd-el-${el.id}`} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke={theme.memberGray} strokeWidth="3.5" strokeLinecap="round" />;
-                      })}
-                      
-                      {fElements.map(el => {
-                        const n1 = fNodes.find(n => n.id === el.n1), n2 = fNodes.find(n => n.id === el.n2);
-                        if (!n1 || !n2) return null;
-                        const distLoad = fDistLoads[el.id];
-                        const pointLoad = fPointLoadsOnElement[el.id];
-                        
-                        let plX = n1.x, plY = n1.y;
-                        if (pointLoad && pointLoad.x !== undefined) {
-                          const totalLen = Math.sqrt((n2.x - n1.x)**2 + (n2.y - n1.y)**2);
-                          const actualLenM = totalLen / PIXELS_PER_GRID * fGridScale;
-                          const ratio = actualLenM > 0 ? Math.min(Math.max(pointLoad.x / actualLenM, 0), 1) : 0;
-                          plX = n1.x + (n2.x - n1.x) * ratio;
-                          plY = n1.y + (n2.y - n1.y) * ratio;
-                        }
-                        
-                        return (
-                          <g key={`fbd-loads-${el.id}`}>
-                            {renderDistributedLoadArrows(n1.x, n1.y, n2.x, n2.y, distLoad?.wx, distLoad?.wy)}
-                            {pointLoad && (
-                              <>
-                                {pointLoad.py && pointLoad.py !== 0 && (
-                                  <g>
-                                    <line x1={plX} y1={plY - 45} x2={plX} y2={plY - 10} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
-                                    <text x={plX + 12} y={plY - 20} fill={theme.accent} fontSize="13" fontWeight="bold">P = {pointLoad.py} {fForceUnit}</text>
-                                  </g>
-                                )}
-                                {pointLoad.px && pointLoad.px !== 0 && (
-                                  <g>
-                                    <line x1={plX - 45} y1={plY} x2={plX - 10} y2={plY} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
-                                    <text x={plX - 25} y={plY - 10} fill={theme.accent} fontSize="13" fontWeight="bold">P = {pointLoad.px} {fForceUnit}</text>
-                                  </g>
-                                )}
-                              </>
-                            )}
-                          </g>
-                        )
-                      })}
-
-                      {Object.entries(fSupports).map(([nId, supData]) => {
-                        const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                        const rxn = frameLocalData.rxns[node.id];
-                        
-                        const fyText = rxn ? Math.abs(rxn.fy).toFixed(2) : "0.00";
-                        const fxText = rxn ? Math.abs(rxn.fx).toFixed(2) : "0.00";
-                        const mzText = rxn && rxn.mz ? Math.abs(rxn.mz).toFixed(2) : "0.00";
-                        
-                        const isFyPos = rxn ? (rxn.fy >= 0) : true;
-                        const isFxPos = rxn ? (rxn.fx >= 0) : true;
-                        const isMzCW = rxn ? (rxn.mz < 0) : true;
-
-                        return (
-                          <g key={`f-fbd-sup-${nId}`}>
-                            {(supData.type !== 'free') && (
-                              <>
-                                <line x1={node.x} y1={isFyPos ? node.y + 45 : node.y - 45} x2={node.x} y2={isFyPos ? node.y + 10 : node.y - 10} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
-                                <text x={node.x + 12} y={isFyPos ? node.y + 25 : node.y - 25} fontSize="12" fill={theme.supportOrange} fontWeight="bold">{fyText}</text>
-                              </>
-                            )}
-                            {(supData.type === 'pin' || supData.type === 'fixed') && (
-                              <>
-                                <line x1={isFxPos ? node.x - 40 : node.x + 40} y1={node.y} x2={isFxPos ? node.x - 10 : node.x + 10} y2={node.y} stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
-                                <text x={isFxPos ? node.x - 45 : node.x + 50} y={node.y - 8} fontSize="12" fill={theme.supportOrange} fontWeight="bold">{fxText}</text>
-                              </>
-                            )}
-                            {supData.type === 'fixed' && (
-                              <g>
-                                <path d={isMzCW ? `M ${node.x-20} ${node.y-20} A 20 20 0 0 1 ${node.x+20} ${node.y-20}` : `M ${node.x+20} ${node.y-20} A 20 20 0 0 0 ${node.x-20} ${node.y-20}`} fill="none" stroke={theme.supportOrange} strokeWidth="2.5" markerEnd="url(#arrowReaction)" />
-                                <text x={node.x} y={node.y - 45} fontSize="12" fill={theme.supportOrange} fontWeight="bold" textAnchor="middle">{mzText}</text>
-                              </g>
-                            )}
-                            <RenderSupportSVG cx={node.x} cy={node.y} type={supData.type} dir={supData.direction || 'horizontal'} />
-                          </g>
-                        );
-                      })}
-                      
-                      {Object.entries(fLoads).map(([nId, force]) => {
-                        const node = fNodes.find(n => n.id === parseInt(nId)); if (!node) return null;
-                        return (
-                          <g key={`f-fbd-nload-${nId}`}>
-                            {Number(force.fy) !== 0 && (
-                              <>
-                                <line x1={node.x} y1={force.fy > 0 ? node.y - 40 : node.y + 10} x2={node.x} y2={force.fy > 0 ? node.y - 10 : node.y + 40} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
-                                <text x={node.x + 12} y={node.y - 15} fontSize="12" fill={theme.accent} fontWeight="bold">{force.fy} {fForceUnit}</text>
-                              </>
-                            )}
-                            {Number(force.fx) !== 0 && (
-                              <>
-                                <line x1={node.x} y1={node.x - 40} x2={node.x} y2={node.x + 10} stroke={theme.accent} strokeWidth="2.5" markerEnd="url(#arrowPoint)" />
-                                <text x={node.x - 20} y={node.y - 15} fontSize="12" fill={theme.accent} fontWeight="bold">{force.fx} {fForceUnit}</text>
-                              </>
-                            )}
-                          </g>
-                        );
-                      })}
-                      
-                      {fNodes.map(node => (
-                        <g key={`f-fbd-n-${node.id}`}>
-                          <circle cx={node.x} cy={node.y} r={4} fill="#fff" />
-                          <text x={node.x + 8} y={node.y - 8} fontSize="12" fill="#fff" fontWeight="bold">{node.name}</text>
-                        </g>
-                      ))}
-                    </svg>
-                  </div>
-                </div>
-              )}
-
-              <div style={{ backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
+              <div style={{ marginTop: 15, padding: 15, background: '#1A1A1A', borderRadius: 8 }}>
                 {fSelectedNode ? (
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <strong style={{ color: '#fff' }}>Node {fSelectedNode.name}:</strong>
-                    <select value={fSupports[fSelectedNode.id]?.type || 'none'} onChange={(e) => handleFSupportTypeChange(fSelectedNode.id, e.target.value)} style={{ fontFamily: '"Times New Roman", Times, serif' }}>
-                      <option value="none">Support: None</option><option value="fixed">Fixed</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="free">Free</option>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <b>Node {fSelectedNode.name}</b>
+                    <select value={fSupports[fSelectedNode.id]?.type || 'none'} onChange={e => handleFSupportTypeChange(fSelectedNode.id, e.target.value)} style={inputStyle}>
+                      <option value="none">None</option><option value="pin">Pin</option><option value="roller">Roller</option><option value="fixed">Fixed</option>
                     </select>
-                    <select value={fSupports[fSelectedNode.id]?.direction || 'horizontal'} onChange={(e) => { saveFrameState(); setFSupports(prev => ({ ...prev, [fSelectedNodeId]: { ...prev[fSelectedNodeId], direction: e.target.value } })) }} style={{ padding: '4px', borderRadius: '4px', fontFamily: '"Times New Roman", Times, serif' }}>
-                      <option value="horizontal">Horz ➖</option><option value="vertical">Vert ⏐</option>
+                    <select
+                      value={fSupports[fSelectedNode.id]?.direction || 'horizontal'}
+                      onChange={e => {
+                        saveFrameState()
+                        setFSupports(prev => ({
+                          ...prev,
+                          [fSelectedNode.id]: { ...(prev[fSelectedNode.id] || {}), direction: e.target.value }
+                        }))
+                      }}
+                      style={inputStyle}
+                    >
+                      <option value="horizontal">Horizontal surface</option>
+                      <option value="vertical">Vertical surface</option>
                     </select>
-                    <input type="number" placeholder={`Fx (${fForceUnit})`} value={fLoads[fSelectedNode.id]?.fx !== undefined ? fLoads[fSelectedNode.id].fx : ''} onChange={(e) => handleFLoadChange(fSelectedNode.id, 'fx', e.target.value)} style={{ width: '70px', padding: '4px' }} />
-                    <input type="number" placeholder={`Fy (${fForceUnit})`} value={fLoads[fSelectedNode.id]?.fy !== undefined ? fLoads[fSelectedNode.id].fy : ''} onChange={(e) => handleFLoadChange(fSelectedNode.id, 'fy', e.target.value)} style={{ width: '70px', padding: '4px' }} />
-                    
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center', marginLeft: '10px' }}>
-                      <label style={{ fontSize: '0.85rem' }}>Mz:</label>
-                      <input type="number" value={fLoads[fSelectedNode.id]?.mz ? Math.abs(fLoads[fSelectedNode.id].mz) : ''} onChange={(e) => {
-                        const val = Number(e.target.value);
-                        const isCW = (fLoads[fSelectedNode.id]?.mz || 0) < 0;
-                        handleFLoadChange(fSelectedNode.id, 'mz', isCW ? -val : val);
-                      }} style={{ width: '60px', padding: '4px' }} />
-                      <select value={(fLoads[fSelectedNode.id]?.mz || 0) < 0 ? 'cw' : 'ccw'} onChange={(e) => {
-                        const isCW = e.target.value === 'cw';
-                        const absMz = Math.abs(fLoads[fSelectedNode.id]?.mz || 0);
-                        handleFLoadChange(fSelectedNode.id, 'mz', isCW ? -absMz : absMz);
-                      }} style={{ fontSize: '0.8rem', fontFamily: '"Times New Roman", Times, serif' }}>
-                        <option value="cw">CW ↻</option>
-                        <option value="ccw">CCW ↺</option>
-                      </select>
-                    </div>
+                    <input type="number" placeholder={`Fx (${fForceUnit})`} value={fLoads[fSelectedNode.id]?.fx ?? ''} onChange={e => handleFLoadChange(fSelectedNode.id, 'fx', e.target.value)} style={{ ...inputStyle, width: 80 }} />
+                    <input type="number" placeholder={`Fy (${fForceUnit})`} value={fLoads[fSelectedNode.id]?.fy ?? ''} onChange={e => handleFLoadChange(fSelectedNode.id, 'fy', e.target.value)} style={{ ...inputStyle, width: 80 }} />
+                    <input type="number" placeholder="Mz (kN·m)" value={fLoads[fSelectedNode.id]?.mz ?? ''} onChange={e => handleFLoadChange(fSelectedNode.id, 'mz', e.target.value)} style={{ ...inputStyle, width: 90 }} />
                   </div>
                 ) : fSelectedElement ? (
-                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <strong style={{ color: '#fff' }}>Member Load:</strong>
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                      <label style={{ fontSize: '0.85rem' }}>wx:</label>
-                      <input type="number" placeholder={`${fForceUnit}/m`} value={fDistLoads[fSelectedElement.id]?.wx || ''} onChange={(e) => handleFDistLoadChange(fSelectedElement.id, 'wx', e.target.value)} style={{ width: '75px', padding: '3px' }} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                      <label style={{ fontSize: '0.85rem' }}>wy:</label>
-                      <input type="number" placeholder={`${fForceUnit}/m`} value={fDistLoads[fSelectedElement.id]?.wy || ''} onChange={(e) => handleFDistLoadChange(fSelectedElement.id, 'wy', e.target.value)} style={{ width: '75px', padding: '3px' }} />
-                    </div>
-                    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                      <label style={{ fontSize: '0.85rem' }}>Point P:</label>
-                      <input type="number" placeholder={fForceUnit} value={fPointLoadsOnElement[fSelectedElement.id]?.py !== undefined ? fPointLoadsOnElement[fSelectedElement.id].py : (fPointLoadsOnElement[fSelectedElement.id]?.px !== undefined ? fPointLoadsOnElement[fSelectedElement.id].px : '')} onChange={(e) => {
-                        const val = e.target.value;
-                        const isVertical = !fPointLoadsOnElement[fSelectedElement.id]?.px;
-                        handleElementPointLoadChange(fSelectedElement.id, isVertical ? 'py' : 'px', val);
-                        if (isVertical) handleElementPointLoadChange(fSelectedElement.id, 'px', '');
-                        else handleElementPointLoadChange(fSelectedElement.id, 'py', '');
-                      }} style={{ width: '60px', padding: '3px' }} />
-                      <select onChange={(e) => {
-                        const dir = e.target.value;
-                        const currVal = fPointLoadsOnElement[fSelectedElement.id]?.py || fPointLoadsOnElement[fSelectedElement.id]?.px || 0;
-                        if (dir === 'py') {
-                          handleElementPointLoadChange(fSelectedElement.id, 'py', currVal);
-                          handleElementPointLoadChange(fSelectedElement.id, 'px', '');
-                        } else {
-                          handleElementPointLoadChange(fSelectedElement.id, 'px', currVal);
-                          handleElementPointLoadChange(fSelectedElement.id, 'py', '');
-                        }
-                      }} style={{ fontSize: '0.8rem', fontFamily: '"Times New Roman", Times, serif' }}>
-                        <option value="py">Vert (Py)</option>
-                        <option value="px">Side (Px)</option>
-                      </select>
-                      <label style={{ fontSize: '0.85rem' }}>at x:</label>
-                      <input type="number" placeholder="m" value={fPointLoadsOnElement[fSelectedElement.id]?.x || ''} onChange={(e) => handleElementPointLoadChange(fSelectedElement.id, 'x', e.target.value)} style={{ width: '50px', padding: '3px' }} />
-                    </div>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <b>Member {fNodes.find(n => n.id === fSelectedElement.n1)?.name}{fNodes.find(n => n.id === fSelectedElement.n2)?.name}</b>
+                    <input type="number" placeholder={`wx (${fForceUnit}/m)`} value={fDistLoads[fSelectedElement.id]?.wx ?? ''} onChange={e => handleFDistLoadChange(fSelectedElement.id, 'wx', e.target.value)} style={{ ...inputStyle, width: 110 }} />
+                    <input type="number" placeholder={`wy (${fForceUnit}/m)`} value={fDistLoads[fSelectedElement.id]?.wy ?? ''} onChange={e => handleFDistLoadChange(fSelectedElement.id, 'wy', e.target.value)} style={{ ...inputStyle, width: 110 }} />
+                    <input type="number" placeholder={`P (${fForceUnit})`} value={fPointLoadsOnElement[fSelectedElement.id]?.py ?? fPointLoadsOnElement[fSelectedElement.id]?.px ?? ''} onChange={e => handleElementPointLoadChange(fSelectedElement.id, 'py', e.target.value)} style={{ ...inputStyle, width: 90 }} />
+                    <input type="number" placeholder="a from Node i (m)" value={fPointLoadsOnElement[fSelectedElement.id]?.x ?? ''} onChange={e => handleElementPointLoadChange(fSelectedElement.id, 'x', e.target.value)} style={{ ...inputStyle, width: 120 }} />
                   </div>
                 ) : (
-                  <span style={{ fontSize: '0.95rem', color: '#888', fontStyle: 'italic' }}>💡 Tip: Click Node for Supports/Point/Moment Loads, or click Member for UDL/Internal Point Loads.</span>
+                  <span style={{ color: '#888' }}>Click a node for supports/nodal loads or click a member for distributed/member point loads.</span>
                 )}
               </div>
 
-              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                <button onClick={runFrameStaticsAnalysis} disabled={fNodes.length < 2} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: fNodes.length < 2 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: fNodes.length < 2 ? 'not-allowed' : 'pointer', boxShadow: '0 4px 10px rgba(0,0,0,0.3)' }}>Calculate Frame Reactions</button>
+              <div style={{ textAlign: 'center', margin: 18 }}>
+                <button style={buttonStyle} disabled={fNodes.length < 2} onClick={runFrameStaticsAnalysis}>Calculate Frame Reactions</button>
               </div>
 
               {frameLocalData.analyzed && (
-                <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
-                  <h4 style={{ margin: '0 0 8px 0', color: theme.textMain }}>3. Engineering Statics Calculation Steps</h4>
-                  <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
-                    {frameLocalData.steps.map((step, idx) => (
-                      <div key={idx} style={{ marginBottom: '4px' }}>{step}</div>
-                    ))}
-                  </div>
+                <pre style={{ whiteSpace: 'pre-wrap', background: '#151515', padding: 15, borderLeft: `5px solid ${theme.accent}` }}>
+                  {frameLocalData.steps.join('\n')}
+                </pre>
+              )}
+
+              {frameLocalData.analyzed && Object.keys(frameLocalData.rxns).length > 0 && (
+                <div style={{ marginTop: 15, padding: 15, background: '#1A1A1A' }}>
+                  <h3>Support Reactions</h3>
+                  {Object.entries(frameLocalData.rxns).map(([id, r]) => (
+                    <div key={id} style={{ marginBottom: 8 }}>
+                      <b>{fNodes.find(n => String(n.id) === String(id))?.name}</b>:
+                      &nbsp;Rx = {formatNumber(r.fx)} {fForceUnit},
+                      &nbsp;Ry = {formatNumber(r.fy)} {fForceUnit},
+                      &nbsp;M = {formatNumber(r.mz)} kN·m
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
