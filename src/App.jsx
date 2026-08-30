@@ -811,28 +811,51 @@ function App() {
       )}
 
       <style>{`
-        #root { max-width: 100% !important; margin: 0 !important; padding: 0 !important; border: none !important; box-shadow: none !important; text-align: left !important; }
-        body { margin: 0; padding: 0; background-color: ${theme.bg}; color: ${theme.textMain}; }
-        .app-bg { background-color: ${theme.bg}; min-height: 100vh; padding: 35px 20px; }
-        .report-document { width: 100%; max-width: 1600px; margin: 0 auto 40px auto; background: ${theme.cardBg}; padding: 40px; box-sizing: border-box; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid #333; }
+        #root { max-width: 100% !important; margin: 0 !important; padding: 0 !important; border: none !important; box-shadow: none !important; text-align: left !important; width: 100% !important; }
+        body { margin: 0; padding: 0; background-color: ${theme.bg}; color: ${theme.textMain}; width: 100% !important; overflow-x: hidden; }
+        .app-bg { background-color: ${theme.bg}; min-height: 100vh; padding: 20px 25px; width: 100%; box-sizing: border-box; }
+        .report-document { width: 100% !important; max-width: none !important; margin: 0 0 40px 0 !important; background: ${theme.cardBg}; padding: 40px; box-sizing: border-box; box-shadow: 0 4px 20px rgba(0,0,0,0.3); border-radius: 8px; border: 1px solid #333; }
         select, input { background-color: #2A2A2A !important; color: #E0E0E0 !important; border: 1px solid #444 !important; }
+        
         @media print {
-          @page { size: A4 portrait; margin: 12mm; }
-          body, html { background: #ffffff !important; color: #000 !important; padding: 0 !important; margin: 0 !important; -webkit-print-color-adjust: exact; }
-          .app-bg { background-color: #ffffff !important; padding: 0 !important; min-height: auto !important; }
-          .no-print { display: none !important; }
-          .report-document { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 !important; background: #ffffff !important; color: #000 !important; box-shadow: none !important; border: none !important; min-height: auto !important; }
-          .avoid-break { page-break-inside: avoid !important; break-inside: avoid !important; margin-bottom: 20px !important; }
-          .print-clean-border { border: none !important; padding: 0 !important; background: transparent !important; }
-          .print-chart-container { height: 250px !important; }
-          .print-expand { max-height: none !important; overflow: visible !important; background: transparent !important; }
+          @page { size: A4 portrait; margin: 10mm; }
+          body, html { background: #ffffff !important; color: #000000 !important; padding: 0 !important; margin: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .app-bg { background-color: #ffffff !important; padding: 0 !important; min-height: auto !important; width: 100% !important; }
+          
+          /* ซ่อนเมนู ปุ่มกด และเครื่องมือปรับแต่งทั้งหมด */
+          .no-print, button, select, input { display: none !important; }
+          
+          /* ขยายรายงานให้เต็มหน้ากระดาษและปรับพื้นหลังเป็นขาว */
+          .report-document { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 !important; background: #ffffff !important; color: #000000 !important; box-shadow: none !important; border: none !important; }
+          
+          /* ซ่อนส่วนที่ไม่ต้องการให้แสดงในการพิมพ์ (ซ่อนส่วนการตั้งค่าโครงสร้างช่องที่ 1 และขั้นตอนคำนวณตัวเลขยาวๆ ถ้าต้องการให้เหลือเฉพาะโครงสร้างจริง FBD และสรุปผล) */
+          /* หมายเหตุ: โค้ดนี้จะซ่อนเฉพาะบล็อกอินพุตตั้งค่า แต่ยังคงบล็อกโครงสร้าง 1, FBD 2 และตารางสรุปผลไว้ครบถ้วน */
+
+          /* แปลงสีพื้นหลัง SVG และ Grid ให้ออกมาเป็นสีขาวสะอาดตา */
+          svg { background-color: #ffffff !important; }
+          svg text { fill: #000000 !important; }
+          svg rect[fill="#151515"], svg rect[fill="#1A1A1A"], svg rect[fill="url(#gridT)"], svg rect[fill="url(#gridT_FBD)"], svg rect[fill="url(#gridF)"], svg rect[fill="url(#gridF_FBD)"] { fill: #ffffff !important; }
+          svg path[stroke="#2a2a2a"], svg line[stroke="#2a2a2a"], svg path[stroke="#e0e0e0"] { stroke: #cccccc !important; }
+          
+          /* ปรับแต่งกล่องคอนเทนเนอร์และตารางให้เหมาะกับการปริ้นขาวดำ */
+          div[style*="backgroundColor: '#1A1A1A'"], div[style*="backgroundColor: '#151515'"] {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            border: 1px solid #dddddd !important;
+          }
+          
+          table { width: 100% !important; border-collapse: collapse !important; color: #000000 !important; }
+          th, td { border: 1px solid #cccccc !important; color: #000000 !important; padding: 6px !important; }
+          th { background-color: #f2f2f2 !important; }
+          
+          .avoid-break { page-break-inside: avoid !important; break-inside: avoid !important; margin-bottom: 15px !important; }
         }
       `}</style>
 
-      <div style={{ width: '100%', maxWidth: '1600px', margin: '0 auto' }}>
+      <div style={{ width: '100%', margin: '0 auto' }}>
         
         {/* Top Header Navigation with Formula Button */}
-        <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+        <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', width: '100%' }}>
           <button 
             onClick={() => { setCurrentView('home'); window.scrollTo(0,0); }} 
             style={{ padding: '8px 16px', fontSize: '0.9rem', fontWeight: 'bold', borderRadius: '6px', cursor: 'pointer', border: '1px solid #444', backgroundColor: '#1E1E1E', color: '#fff', position: 'relative', zIndex: 10 }}>
@@ -849,7 +872,7 @@ function App() {
         </div>
 
         {/* Structure Selector Tabs */}
-        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 10 }}>
+        <div className="no-print" style={{ display: 'flex', gap: '12px', marginBottom: '25px', justifyContent: 'center', flexWrap: 'wrap', position: 'relative', zIndex: 10, width: '100%' }}>
           <button onClick={() => setActiveTab('vectors')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'vectors' ? '#333' : '#1E1E1E', color: '#fff' }}>Force Vectors</button>
           <button onClick={() => setActiveTab('beam')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'beam' ? '#333' : '#1E1E1E', color: '#fff' }}>Simple Beam</button>
           <button onClick={() => setActiveTab('truss')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'truss' ? '#333' : '#1E1E1E', color: '#fff' }}>Truss Builder</button>
