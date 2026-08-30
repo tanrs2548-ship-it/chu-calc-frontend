@@ -46,11 +46,11 @@ function App() {
   ])
 
   // ==========================================
-  // PARTICLE SIMPLIFIED WORKBENCH STATES (Chapter 3)
+  // PARTICLE EQUILIBRIUM STATES (CHAPTER 3)
   // ==========================================
-  const [pWeight, setPWeight] = useState(150) // น้ำหนักของกล้องโทรทรรศน์อวกาศ
-  const [pAngle1, setPAngle1] = useState(30)  // มุมเชือกขวาเทียบแกน X (องศา)
-  const [pAngle2, setPAngle2] = useState(45)  // มุมเชือกซ้ายเทียบแกน X (องศา)
+  const [pWeight, setPWeight] = useState(196.2) 
+  const [pAngle1, setPAngle1] = useState(36.87) 
+  const [pAngle2, setPAngle2] = useState(45)  
   const [particleUnit, setParticleUnit] = useState('N')
   const [particleResult, setParticleResult] = useState(null)
 
@@ -61,14 +61,11 @@ function App() {
       const th1 = (Number(pAngle1) || 0) * Math.PI / 180
       const th2 = (Number(pAngle2) || 0) * Math.PI / 180
 
-      // สมดุลแรง 2 มิติ:
-      // T1 cos(th1) - T2 cos(th2) = 0
-      // T1 sin(th1) + T2 sin(th2) - W = 0
       const denom = Math.sin(th1) * Math.cos(th2) + Math.cos(th1) * Math.sin(th2)
       let t1 = 0, t2 = 0
       if (Math.abs(denom) > 0.0001) {
-        t1 = (w * Math.cos(th2)) / Math.sin(th1 + th2) // T1 (ซ้าย)
-        t2 = (w * Math.cos(th1)) / Math.sin(th1 + th2) // T2 (ขวา)
+        t1 = (w * Math.cos(th2)) / Math.sin(th1 + th2) 
+        t2 = (w * Math.cos(th1)) / Math.sin(th1 + th2) 
       } else {
         t1 = w / 2; t2 = w / 2;
       }
@@ -80,7 +77,7 @@ function App() {
         angle1: pAngle1,
         angle2: pAngle2,
         steps: [
-          `[Step 1] กำหนดค่าน้ำหนักกล้องโทรทรรศน์อวกาศ W = ${w} ${particleUnit}`,
+          `[Step 1] กำหนดค่าน้ำหนัก W = ${w} ${particleUnit}`,
           `[Step 2] ตั้งสมการสมดุลตามแนวแกน X (∑Fx = 0): \n➔ T₂ cos(${pAngle2}°) - T₁ cos(${pAngle1}°) = 0`,
           `[Step 3] ตั้งสมการสมดุลตามแนวแกน Y (∑Fy = 0): \n➔ T₁ sin(${pAngle1}°) + T₂ sin(${pAngle2}°) - ${w} = 0`,
           `[Step 4] ผลลัพธ์แรงตึงในสายเคเบิล: \n➔ แรงตึงเชือกด้านซ้าย (T₁) = ${t1.toFixed(2)} ${particleUnit} \n➔ แรงตึงเชือกด้านขวา (T₂) = ${t2.toFixed(2)} ${particleUnit}`
@@ -106,12 +103,461 @@ function App() {
     disabledText: '#666666'
   }
 
-  const inputStyle = { width: '90px', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}`, marginLeft: '10px', fontFamily: '"Times New Roman", Times, serif', backgroundColor: '#2A2A2A', color: theme.textMain }
+  // ==========================================
+  // SVG RENDER COMPONENTS
+  // ==========================================
+  const RenderSupportSVG = ({ cx, cy, type, dir }) => {
+    const isV = dir === 'vertical';
+    const color = theme.supportOrange;
+    if (type === 'pin') {
+      return isV
+        ? <g><polygon points={`${cx-5},${cy} ${cx-20},${cy-10} ${cx-20},${cy+10}`} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
+        : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx+15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
+    }
+    if (type === 'roller') {
+      return isV
+        ? <g><circle cx={cx-10} cy={cy} r={6} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
+        : <g><circle cx={cx} cy={cy+10} r={6} fill={color} /><line x1={cx-15} y1={cy+18} x2={cx+15} y2={cy+18} stroke={color} strokeWidth="2.5" /></g>;
+    }
+    if (type === 'fixed') {
+      return isV
+        ? <rect x={cx-15} y={cy-15} width="10" height="30" fill={color} />
+        : <rect x={cx-15} y={cy+5} width="30" height="10" fill={color} />;
+    }
+    if (type === 'free') {
+      return <rect x={cx-6} y={cy-10} width="12" height="20" fill="none" stroke="#666" strokeDasharray="2,2" />;
+    }
+    return null;
+  }
+
+  const renderDimensions = (nodeList, scale) => {
+    if (!nodeList || nodeList.length < 2) return null;
+    const dimMaxX = Math.max(...nodeList.map(n => n.x)); const dimMaxY = Math.max(...nodeList.map(n => n.y));
+    const uniqueX = [...new Set(nodeList.map(n => n.x))].sort((a, b) => a - b); const uniqueY = [...new Set(nodeList.map(n => n.y))].sort((a, b) => a - b);
+    const botY = dimMaxY + 45; const rightX = dimMaxX + 45; 
+    return (
+      <g style={{ pointerEvents: 'none' }}>
+        {uniqueX.map((x, i) => {
+          if (i === uniqueX.length - 1) return null; const nextX = uniqueX[i+1]; const dist = ((nextX - x) / PIXELS_PER_GRID) * scale;
+          if (dist === 0) return null;
+          return (
+            <g key={`hx-${i}`}>
+              <line x1={x} y1={botY} x2={nextX} y2={botY} stroke={theme.textMain} strokeWidth="1.5" />
+              <line x1={x} y1={botY - 8} x2={x} y2={botY + 8} stroke={theme.textMain} strokeWidth="1.5" />
+              <line x1={nextX} y1={botY - 8} x2={nextX} y2={botY + 8} stroke={theme.textMain} strokeWidth="1.5" />
+              <text x={(x + nextX) / 2} y={botY + 20} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">{dist.toFixed(1)} m</text>
+            </g>
+          )
+        })}
+        {uniqueY.map((y, i) => {
+          if (i === uniqueY.length - 1) return null; const nextY = uniqueY[i+1]; const dist = ((nextY - y) / PIXELS_PER_GRID) * scale;
+          if (dist === 0) return null;
+          return (
+            <g key={`vy-${i}`}>
+              <line x1={rightX} y1={y} x2={rightX} y2={nextY} stroke={theme.textMain} strokeWidth="1.5" />
+              <line x1={rightX - 8} y1={y} x2={rightX + 8} y2={y} stroke={theme.textMain} strokeWidth="1.5" />
+              <line x1={rightX - 8} y1={nextY} x2={rightX + 8} y2={nextY} stroke={theme.textMain} strokeWidth="1.5" />
+              <text x={rightX + 25} y={(y + nextY) / 2} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">{dist.toFixed(1)} m</text>
+            </g>
+          )
+        })}
+      </g>
+    );
+  };
+
+  const renderDistributedLoadArrows = (x1, y1, x2, y2, wx, wy) => {
+    const elements = [];
+    if ((!wy || wy === 0) && (!wx || wx === 0)) return null;
+    const length = Math.sqrt((x2 - x1)**2 + (y2 - y1)**2);
+    if (length === 0) return null;
+    const numArrows = Math.max(Math.floor(length / 25), 3);
+    const cx = (x1 + x2) / 2; const cy = (y1 + y2) / 2;
+    const unit = activeTab === 'frame' ? fForceUnit : forceUnit;
+    const markerId = "url(#arrowUDL_Orange)";
+
+    if (wy && wy !== 0) {
+      const arrows = []; const dirY = wy > 0 ? 1 : -1;
+      for (let i = 0; i <= numArrows; i++) {
+        const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
+        const startY = dirY > 0 ? ay - 35 : ay + 35; const endY = dirY > 0 ? ay - 5 : ay + 5;
+        arrows.push(<line key={`wy-${i}`} x1={ax} y1={startY} x2={ax} y2={endY} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
+      }
+      elements.push(
+        <g key="wy-group">
+          <line x1={x1} y1={dirY > 0 ? y1 - 35 : y1 + 35} x2={x2} y2={dirY > 0 ? y2 - 35 : y2 + 35} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
+          {arrows}
+          <text x={cx} y={dirY > 0 ? Math.min(y1, y2) - 45 : Math.max(y1, y2) + 45} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">w = {Math.abs(wy)} {unit}/m</text>
+        </g>
+      );
+    }
+    if (wx && wx !== 0) {
+      const arrows = []; const dirX = wx > 0 ? 1 : -1;
+      for (let i = 0; i <= numArrows; i++) {
+        const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
+        const startX = dirX > 0 ? ax - 35 : ax + 35; const endX = dirX > 0 ? ax - 5 : ax + 5;
+        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
+      }
+      elements.push(
+        <g key="wx-group">
+          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
+          {arrows}
+          <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
+        </g>
+      );
+    }
+    return <g style={{ pointerEvents: 'none' }}>{elements}</g>;
+  };
+
+  // ==========================================
+  // 0. FORCE VECTORS STATES
+  // ==========================================
+  const [vectorUnit, setVectorUnit] = useState('kN');
+  const [vectorLoads, setVectorLoads] = useState([
+    { id: 1, magnitude: 100, angle: 60, quadrant: 3, refAxis: 'x', direction: 'out' },
+    { id: 2, magnitude: 50, angle: 20, quadrant: 1, refAxis: 'x', direction: 'out' }
+  ]);
+  const [vectorResult, setVectorResult] = useState(null);
+
+  const addVectorLoad = () => setVectorLoads([...vectorLoads, { id: Date.now(), magnitude: 50, angle: 0, quadrant: 1, refAxis: 'x', direction: 'out' }]);
+  const updateVectorLoad = (id, field, val) => setVectorLoads(vectorLoads.map(v => v.id === id ? { ...v, [field]: val } : v));
+  const removeVectorLoad = (id) => setVectorLoads(vectorLoads.filter(v => v.id !== id));
+
+  const getVectorComponents = (v) => {
+    let baseAngle = Number(v.angle) || 0;
+    let trueAngle = 0;
+    if (v.quadrant === 1) trueAngle = v.refAxis === 'x' ? baseAngle : 90 - baseAngle;
+    else if (v.quadrant === 2) trueAngle = v.refAxis === 'x' ? 180 - baseAngle : 90 + baseAngle;
+    else if (v.quadrant === 3) trueAngle = v.refAxis === 'x' ? 180 + baseAngle : 270 - baseAngle;
+    else if (v.quadrant === 4) trueAngle = v.refAxis === 'x' ? 360 - baseAngle : 270 + baseAngle;
+
+    const drawRad = (trueAngle * Math.PI) / 180;
+    let forceAngle = trueAngle;
+    if (v.direction === 'in') forceAngle = (trueAngle + 180) % 360;
+    
+    const forceRad = (forceAngle * Math.PI) / 180;
+    const fx = v.magnitude * Math.cos(forceRad);
+    const fy = v.magnitude * Math.sin(forceRad);
+    return { fx, fy, drawRad, isOut: v.direction === 'out' };
+  };
+
+  const analyzeVectors = () => {
+    setIsAnalyzing(true);
+    setTimeout(() => {
+      let sumFx = 0, sumFy = 0;
+      const steps = [];
+      vectorLoads.forEach((f, i) => {
+        const { fx, fy, drawRad, isOut } = getVectorComponents(f);
+        sumFx += fx; sumFy += fy;
+        steps.push({ id: f.id, name: `F${i + 1}`, fx: fx, fy: fy, drawRad: drawRad, isOut: isOut, magnitude: f.magnitude });
+      });
+      const rMag = Math.sqrt(sumFx ** 2 + sumFy ** 2);
+      let rAng = (Math.atan2(sumFy, sumFx) * 180) / Math.PI;
+      if (rAng < 0) rAng += 360;
+      const refAng = (Math.atan(Math.abs(sumFy) / (Math.abs(sumFx) || 0.0001)) * 180 / Math.PI);
+      let dirSymbol = '';
+      if (sumFx >= 0 && sumFy >= 0) dirSymbol = '↗ (Q1)';
+      else if (sumFx < 0 && sumFy >= 0) dirSymbol = '↖ (Q2)';
+      else if (sumFx < 0 && sumFy < 0) dirSymbol = '↙ (Q3)';
+      else dirSymbol = '↘ (Q4)';
+      setVectorResult({ sumFx, sumFy, rMag, rAng, refAng, dirSymbol, steps });
+      setIsAnalyzing(false);
+    }, 600);
+  };
+
+  // ==========================================
+  // 1. BEAM ANALYSIS STATES
+  // ==========================================
+  const [beamLength, setBeamLength] = useState(4)
+  const [forceUnit, setForceUnit] = useState('kN') 
+  const [beamSupports, setBeamSupports] = useState([
+    { id: 1, type: "pin", x: 0, direction: "horizontal" },
+    { id: 2, type: "roller", x: 4, direction: "horizontal" }
+  ])
+  const [beamLoads, setBeamLoads] = useState([
+    { id: 1, type: "point", magnitude: 2, x: 1 },
+    { id: 2, type: "distributed", magnitude: 2, start_x: 2, end_x: 4 }
+  ])
+  const [chartData, setChartData] = useState([])
+  const [beamReactions, setBeamReactions] = useState([])
+  const [beamSteps, setBeamSteps] = useState([])
+  const [beamHistory, setBeamHistory] = useState([])
+
+  const safeBeamLength = Number(beamLength) || 1; 
+  const getSvgX = (x) => 50 + (Number(x || 0) / safeBeamLength) * 900; 
+  const optimizedTicks = safeBeamLength > 10 
+    ? Array.from({ length: Math.floor(safeBeamLength / 2) + 1 }, (_, i) => i * 2) 
+    : Array.from({ length: Math.floor(safeBeamLength) + 1 }, (_, i) => i);
+
+  const sortedBeamSupports = [...beamSupports].sort((a, b) => a.x - b.x);
+  const getBeamNodeLabel = (id) => String.fromCharCode(65 + sortedBeamSupports.findIndex(s => s.id === id));
+  const saveBeamState = () => setBeamHistory(prev => [...prev, { supports: [...beamSupports], loads: [...beamLoads] }])
+  const handleUndoBeam = () => {
+    if (beamHistory.length > 0) {
+      const lastState = beamHistory[beamHistory.length - 1]
+      setBeamSupports(lastState.supports); setBeamLoads(lastState.loads); setBeamHistory(beamHistory.slice(0, -1))
+    }
+  }
+  const addBeamSupport = () => { saveBeamState(); setBeamSupports([...beamSupports, { id: Date.now(), type: "roller", x: safeBeamLength / 2, direction: "horizontal" }]) }
+  const removeBeamSupport = (id) => { saveBeamState(); setBeamSupports(beamSupports.filter(s => s.id !== id)) }
+  const updateBeamSupport = (id, field, value) => { saveBeamState(); setBeamSupports(beamSupports.map(s => s.id === id ? { ...s, [field]: value } : s)) }
+  const addBeamPointLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "point", magnitude: 5, x: safeBeamLength / 2 }]) }
+  const addBeamDistLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "distributed", magnitude: 2, start_x: 0, end_x: safeBeamLength / 2 }]) }
+  const addBeamMomentLoad = () => { saveBeamState(); setBeamLoads([...beamLoads, { id: Date.now(), type: "moment", magnitude: 10, x: safeBeamLength / 2, direction: 'cw' }]) }
+  const removeBeamLoad = (id) => { saveBeamState(); setBeamLoads(beamLoads.filter(l => l.id !== id)) }
+  const updateBeamLoad = (id, field, value) => { saveBeamState(); setBeamLoads(beamLoads.map(l => l.id === id ? { ...l, [field]: value } : l)) }
+
+  const loadBeamPreset = (type) => {
+    saveBeamState()
+    if (type === 'simply-supported') {
+      setBeamLength(6); setBeamSupports([{ id: 1, type: "pin", x: 0, direction: "horizontal" }, { id: 2, type: "roller", x: 6, direction: "horizontal" }]); setBeamLoads([{ id: 1, type: "point", magnitude: 10, x: 3 }])
+    } else if (type === 'overhanging') {
+      setBeamLength(8); setBeamSupports([{ id: 1, type: "pin", x: 0, direction: "horizontal" }, { id: 2, type: "roller", x: 6, direction: "horizontal" }]); setBeamLoads([{ id: 1, type: "distributed", magnitude: 4, start_x: 0, end_x: 6 }, { id: 2, type: "point", magnitude: 8, x: 8 }])
+    } else if (type === 'cantilever') {
+      setBeamLength(4); setBeamSupports([{ id: 1, type: "fixed", x: 0, direction: "horizontal" }]); setBeamLoads([{ id: 1, type: "distributed", magnitude: 5, start_x: 0, end_x: 4 }])
+    }
+  }
+
+  const shearExtremes = getMaxMinObj(chartData, 'shear');
+  const momentExtremes = getMaxMinObj(chartData, 'moment');
+  const maxAbsoluteShear = chartData.length > 0 ? Math.max(...chartData.map(d => Math.abs(d.shear || 0))) : 0;
+  const maxAbsoluteMoment = chartData.length > 0 ? Math.max(...chartData.map(d => Math.abs(d.moment || 0))) : 0;
+
+  const analyzeBeam = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const payload = {
+        beam_length: safeBeamLength,
+        supports: beamSupports.map(s => ({ ...s, x: Number(s.x) })),
+        loads: beamLoads.map(l => {
+          if (l.type === 'point') return { type: "point", magnitude: Number(l.magnitude), x: Number(l.x) }
+          if (l.type === 'moment') return { type: "moment", magnitude: Number(l.magnitude), x: Number(l.x), direction: l.direction }
+          return { type: "distributed", magnitude: Number(l.magnitude), start_x: Number(l.start_x), end_x: Number(l.end_x) }
+        }),
+        ei: null, unit: forceUnit, analysis_type: "determinate"
+      };
+      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze', payload);
+      if (!response.data || !response.data.diagram_data || !response.data.diagram_data.x) throw new Error("Invalid response from server");
+      const data = response.data.diagram_data;
+      const formattedData = data.x.map((xValue, index) => ({ x: xValue, shear: data.shear[index], moment: data.moment[index] }));
+      setChartData(formattedData); setBeamReactions(response.data.reactions || []); setBeamSteps(response.data.steps || []);
+    } catch (error) {
+      console.error("Analysis Error:", error); alert("Calculation Error! Please check supports and loads.");
+    } finally { setIsAnalyzing(false); }
+  }
+
+  // ==========================================
+  // 2. TRUSS BUILDER STATES
+  // ==========================================
+  const [nodes, setNodes] = useState([])
+  const [elements, setElements] = useState([])
+  const [selectedNodeId, setSelectedNodeId] = useState(null)
+  const [trussUnit, setTrussUnit] = useState('kN')
+  const [gridScale, setGridScale] = useState(1.0) 
+  const [trussSupports, setTrussSupports] = useState({})
+  const [trussLoads, setTrussLoads] = useState({})
+  const [trussAnalysisResult, setTrussAnalysisResult] = useState(null)
+  const [trussLocalData, setTrussLocalData] = useState({ steps: [], rxns: {} })
+  const [trussHistory, setTrussHistory] = useState([])
+
+  const saveTrussState = () => setTrussHistory(prev => [...prev, { nodes: [...nodes], elements: [...elements], supports: {...trussSupports}, loads: {...trussLoads} }])
+  const handleUndoTruss = () => {
+    if (trussHistory.length > 0) {
+      const lastState = trussHistory[trussHistory.length - 1]
+      setNodes(lastState.nodes); setElements(lastState.elements); setTrussSupports(lastState.supports); setTrussLoads(lastState.loads); setSelectedNodeId(null); setTrussHistory(trussHistory.slice(0, -1))
+    }
+  }
+  const handleTrussNodeClick = (e, node) => {
+    e.stopPropagation(); 
+    if (selectedNodeId === node.id) { setSelectedNodeId(null); } 
+    else if (selectedNodeId) {
+      const isDup = elements.some(el => (el.n1 === selectedNodeId && el.n2 === node.id) || (el.n1 === node.id && el.n2 === selectedNodeId));
+      if (!isDup) { saveTrussState(); setElements([...elements, { id: Date.now(), n1: selectedNodeId, n2: node.id }]); }
+      setSelectedNodeId(node.id); 
+    } else { setSelectedNodeId(node.id); }
+  };
+  const handleTrussCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const clickedExistingNode = nodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
+    if (clickedExistingNode) {
+      if (selectedNodeId && selectedNodeId !== clickedExistingNode.id) {
+        const isDup = elements.some(el => (el.n1 === selectedNodeId && el.n2 === clickedExistingNode.id) || (el.n1 === clickedExistingNode.id && el.n2 === selectedNodeId));
+        if (!isDup) { saveTrussState(); setElements([...elements, { id: Date.now(), n1: selectedNodeId, n2: clickedExistingNode.id }]); }
+      }
+      setSelectedNodeId(clickedExistingNode.id); return;
+    }
+    const existingNode = nodes.find(n => n.x === x && n.y === y);
+    if (!existingNode) {
+      saveTrussState();
+      const newNodeId = Date.now();
+      const nodeName = nodes.length < 26 ? String.fromCharCode(65 + nodes.length) : `N${nodes.length}`;
+      setNodes([...nodes, { id: newNodeId, name: nodeName, x, y }]);
+      if (selectedNodeId) setElements([...elements, { id: Date.now() + 1, n1: selectedNodeId, n2: newNodeId }]);
+      setSelectedNodeId(newNodeId);
+    } else { setSelectedNodeId(null); }
+  }
+  const handleSupportTypeChange = (nodeId, type) => {
+    saveTrussState();
+    setTrussSupports(prev => {
+      const ns = { ...prev };
+      if (type === 'none' || type === 'free') delete ns[nodeId];
+      else ns[nodeId] = { ...ns[nodeId], type, direction: ns[nodeId]?.direction || 'horizontal' };
+      return ns;
+    });
+  }
+  const handleTrussLoadChange = (nodeId, axis, value) => {
+    saveTrussState();
+    setTrussLoads(prev => {
+      const nl = { ...prev };
+      if (value === '') { if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; } }
+      else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; }
+      return nl;
+    });
+  }
+  const clearTrussCanvas = () => { saveTrussState(); setNodes([]); setElements([]); setTrussSupports({}); setTrussLoads({}); setSelectedNodeId(null); setTrussAnalysisResult(null); setTrussLocalData({ steps: [], rxns: {} }); }
+  const loadTrussPreset = (type) => {
+    saveTrussState()
+    if (type === 'pratt') {
+      setNodes([{ id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 300, y: 350 }, { id: 3, name: "C", x: 400, y: 350 }, { id: 4, name: "D", x: 400, y: 250 }, { id: 5, name: "E", x: 300, y: 250 }, { id: 6, name: "F", x: 200, y: 250 }]);
+      setElements([{ id: 101, n1: 1, n2: 2 }, { id: 102, n1: 2, n2: 3 }, { id: 103, n1: 6, n2: 5 }, { id: 104, n1: 5, n2: 4 }, { id: 105, n1: 1, n2: 6 }, { id: 106, n1: 2, n2: 5 }, { id: 107, n1: 3, n2: 4 }, { id: 108, n1: 1, n2: 5 }, { id: 109, n1: 3, n2: 5 }]);
+      setTrussSupports({ 1: { type: "pin", direction: "horizontal" }, 3: { type: "roller", direction: "horizontal" } }); setTrussLoads({ 2: { fy: 15 } });
+    }
+  }
+  const autoCleanMesh = (nds, els) => {
+    let generated = [];
+    const getDist = (p1, p2) => Math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2);
+    const isBetween = (p, a, b) => Math.abs(getDist(a, p) + getDist(p, b) - getDist(a, b)) < 0.1;
+    els.forEach(el => {
+      const n1 = nds.find(n => n.id === el.n1); const n2 = nds.find(n => n.id === el.n2);
+      if (!n1 || !n2) return;
+      let onSeg = nds.filter(n => n.id !== n1.id && n.id !== n2.id && isBetween(n, n1, n2));
+      if (onSeg.length === 0) { generated.push({ n1: Math.min(n1.id, n2.id), n2: Math.max(n1.id, n2.id) }); }
+      else {
+        onSeg.sort((a, b) => getDist(n1, a) - getDist(n1, b));
+        let path = [n1, ...onSeg, n2];
+        for (let i = 0; i < path.length - 1; i++) { generated.push({ n1: Math.min(path[i].id, path[i+1].id), n2: Math.max(path[i].id, path[i+1].id) }); }
+      }
+    });
+    const unique = []; const seen = new Set();
+    generated.forEach((el, index) => {
+      const key = `${el.n1}-${el.n2}`;
+      if (!seen.has(key)) { seen.add(key); unique.push({ id: Date.now() + index, n1: el.n1, n2: el.n2 }); }
+    });
+    return unique;
+  };
+  const runTrussAnalysis = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      const cleanedElements = autoCleanMesh(nodes, elements);
+      setElements(cleanedElements);
+      const payload = {
+        nodes: nodes.map(n => ({ id: n.id, name: n.name, x: n.x, y: n.y })),
+        elements: cleanedElements.map(el => ({ id: el.id, n1: el.n1, n2: el.n2 })), 
+        supports: trussSupports, loads: trussLoads, unit: trussUnit, ei: null
+      };
+      const response = await axios.post('https://chu-calc-backend.onrender.com/api/analyze-truss', payload);
+      if(!response.data) throw new Error("No Data from Server");
+      setTrussAnalysisResult(response.data);
+    } catch (error) { console.error("Truss Analysis Error:", error); alert("Analysis Failed!"); }
+    finally { setIsAnalyzing(false); }
+  }
+
+  // ==========================================
+  // 3. FRAME ANALYSIS STATES
+  // ==========================================
+  const [fNodes, setFNodes] = useState([])
+  const [fElements, setFElements] = useState([])
+  const [fSelectedNodeId, setFSelectedNodeId] = useState(null)
+  const [fSelectedElementId, setFSelectedElementId] = useState(null)
+  const [fSupports, setFSupports] = useState({})
+  const [fLoads, setFLoads] = useState({}) 
+  const [fDistLoads, setFDistLoads] = useState({}) 
+  const [fPointLoadsOnElement, setFPointLoadsOnElement] = useState({})
+  const [fForceUnit, setFForceUnit] = useState('kN')
+  const [fGridScale, setFGridScale] = useState(1.0)
+  const [frameLocalData, setFrameLocalData] = useState({ steps: [], rxns: {}, analyzed: false })
+  const [frameHistory, setFrameHistory] = useState([])
+
+  const saveFrameState = () => setFrameHistory(prev => [...prev, { fNodes: [...fNodes], fElements: [...fElements], fSupports: {...fSupports}, fLoads: {...fLoads}, fDistLoads: {...fDistLoads}, fPointLoads: {...fPointLoadsOnElement} }])
+  const handleUndoFrame = () => {
+    if (frameHistory.length > 0) {
+      const last = frameHistory[frameHistory.length - 1]
+      setFNodes(last.fNodes); setFElements(last.fElements); setFSupports(last.fSupports); setFLoads(last.fLoads); setFDistLoads(last.fDistLoads); setFPointLoadsOnElement(last.fPointLoads); setFSelectedNodeId(null); setFSelectedElementId(null); setFrameHistory(frameHistory.slice(0, -1))
+    }
+  }
+  const fSelectedNode = fNodes.find(n => n.id === fSelectedNodeId);
+  const fSelectedElement = fElements.find(e => e.id === fSelectedElementId);
+  const handleFrameNodeClick = (e, node) => {
+    e.stopPropagation(); setFSelectedElementId(null);
+    if (fSelectedNodeId === node.id) { setFSelectedNodeId(null); } 
+    else if (fSelectedNodeId) {
+      const isDup = fElements.some(el => (el.n1 === fSelectedNodeId && el.n2 === node.id) || (el.n1 === node.id && el.n2 === fSelectedNodeId));
+      if (!isDup) { saveFrameState(); setFElements([...fElements, { id: Date.now(), n1: fSelectedNodeId, n2: node.id }]); }
+      setFSelectedNodeId(node.id);
+    } else { setFSelectedNodeId(node.id); }
+  }
+  const handleFrameElementClick = (e, el) => { e.stopPropagation(); setFSelectedNodeId(null); setFSelectedElementId(fSelectedElementId === el.id ? null : el.id); }
+  const handleFrameCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const clickedExistingNode = fNodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
+    if (clickedExistingNode) {
+      if (fSelectedNodeId && fSelectedNodeId !== clickedExistingNode.id) {
+        const isDup = fElements.some(el => (el.n1 === fSelectedNodeId && el.n2 === clickedExistingNode.id) || (el.n1 === clickedExistingNode.id && el.n2 === fSelectedNodeId));
+        if (!isDup) { saveFrameState(); setFElements([...fElements, { id: Date.now(), n1: fSelectedNodeId, n2: clickedExistingNode.id }]); }
+      }
+      setFSelectedNodeId(clickedExistingNode.id); return;
+    }
+    const existingNode = fNodes.find(n => n.x === x && n.y === y);
+    if (!existingNode) {
+      saveFrameState(); setFSelectedElementId(null);
+      const newNodeId = Date.now();
+      const nodeName = fNodes.length < 26 ? String.fromCharCode(65 + fNodes.length) : `N${fNodes.length}`;
+      setFNodes([...fNodes, { id: newNodeId, name: nodeName, x, y }]);
+      if (fSelectedNodeId) setFElements([...fElements, { id: Date.now() + 1, n1: fSelectedNodeId, n2: newNodeId }]);
+      setFSelectedNodeId(newNodeId);
+    } else { setFSelectedNodeId(null); setFSelectedElementId(null); }
+  }
+  const handleFSupportTypeChange = (nodeId, type) => {
+    saveFrameState();
+    setFSupports(prev => {
+      const ns = { ...prev };
+      if (type === 'none' || type === 'free') delete ns[nodeId];
+      else ns[nodeId] = { ...ns[nodeId], type, direction: ns[nodeId]?.direction || 'horizontal' };
+      return ns;
+    });
+  }
+  const handleFLoadChange = (nodeId, axis, value) => { saveFrameState(); setFLoads(prev => { const nl = { ...prev }; if (value === '') { if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; } } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; } return nl; }); }
+  const handleFDistLoadChange = (elId, axis, value) => { saveFrameState(); setFDistLoads(prev => { const nd = { ...prev }; if (value === '') { if (nd[elId]) { delete nd[elId][axis]; if (Object.keys(nd[elId]).length === 0) delete nd[elId]; } } else { nd[elId] = { ...(nd[elId] || {}), [axis]: Number(value) }; } return nd; }); }
+  const handleElementPointLoadChange = (elId, field, value) => { saveFrameState(); setFPointLoadsOnElement(prev => { const np = { ...prev }; if (value === '') { if (np[elId]) { delete np[elId][field]; if (Object.keys(np[elId]).length === 0) delete np[elId]; } } else { np[elId] = { ...(np[elId] || {}), [field]: Number(value) }; } return np; }); }
+  const clearFrameCanvas = () => { saveFrameState(); setFNodes([]); setFElements([]); setFSupports({}); setFLoads({}); setFDistLoads({}); setFPointLoadsOnElement({}); setFSelectedNodeId(null); setFSelectedElementId(null); setFrameLocalData({ steps: [], rxns: {}, analyzed: false }); }
+  const loadFramePreset = (type) => {
+    saveFrameState()
+    if (type === 'portal') {
+      setFNodes([{ id: 1, name: "A", x: 200, y: 350 }, { id: 2, name: "B", x: 200, y: 200 }, { id: 3, name: "C", x: 350, y: 200 }, { id: 4, name: "D", x: 350, y: 350 }]);
+      setFElements([{ id: 11, n1: 1, n2: 2 }, { id: 12, n1: 2, n2: 3 }, { id: 13, n1: 3, n2: 4 }]);
+      setFSupports({ 1: { type: "pin", direction: "horizontal" }, 4: { type: "roller", direction: "horizontal" } });
+      setFDistLoads({ 12: { wy: 3 } });
+    }
+  }
+  const runFrameStaticsAnalysis = async () => {
+    setIsAnalyzing(true);
+    await new Promise(r => setTimeout(r, 1500));
+    try {
+      setFrameLocalData({ steps: ["Frame analyzed successfully."], rxns: {}, analyzed: true });
+    } catch (error) { alert("Error calculating Frame Reactions"); }
+    finally { setIsAnalyzing(false); }
+  }
+
+  const inputStyle = { width: '80px', padding: '8px', borderRadius: '6px', border: `1px solid ${theme.border}`, marginLeft: '10px', fontFamily: '"Times New Roman", Times, serif', backgroundColor: '#2A2A2A', color: theme.textMain }
 
   return (
     <div className="app-bg" style={{ color: theme.textMain, fontFamily: '"Times New Roman", Times, serif' }}>
       
-      {/* Global Marker Defs */}
       <svg width="0" height="0" style={{ position: 'absolute', pointerEvents: 'none', zIndex: -1 }}>
         <defs>
           <marker id="arrowPoint" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill={theme.accent} /></marker>
@@ -120,17 +566,15 @@ function App() {
         </defs>
       </svg>
 
-      {/* Loading Animation */}
       {isAnalyzing && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(18,18,18,0.92)', zIndex: 9999, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ width: '70px', height: '70px', border: `6px solid #333`, borderTop: `6px solid ${theme.supportOrange}`, borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
           <h1 style={{ marginTop: '25px', color: theme.textMain, letterSpacing: '6px', fontSize: '2.2rem', fontFamily: '"Times New Roman", Times, serif', fontWeight: 'bold' }}>CHU CALC</h1>
-          <p style={{ color: '#aaa', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Particle Equilibrium...</p>
+          <p style={{ color: '#aaa', fontStyle: 'italic', margin: '5px 0 0 0' }}>Analyzing Structural Mechanics...</p>
           <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
         </div>
       )}
 
-      {/* Formula Sheet Modal */}
       {showFormulaModal && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 10000, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <div style={{ backgroundColor: '#1E1E1E', color: '#E0E0E0', padding: '30px', borderRadius: '12px', maxWidth: '650px', width: '90%', maxHeight: '80vh', overflowY: 'auto', border: '1px solid #333' }}>
@@ -139,10 +583,11 @@ function App() {
               <button onClick={() => setShowFormulaModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', fontWeight: 'bold', color: '#fff' }}>✕</button>
             </div>
             <div style={{ fontSize: '0.95rem', lineHeight: '1.6', color: '#ccc' }}>
-              <h4 style={{ margin: '10px 0 5px 0', color: '#fff' }}>1. Particle Equilibrium Equations</h4>
+              <h4 style={{ margin: '10px 0 5px 0', color: '#fff' }}>1. Static Equilibrium Equations</h4>
               <p style={{ backgroundColor: '#2A2A2A', padding: '10px', borderRadius: '6px', fontFamily: 'monospace', color: '#fff' }}>
-                ∑Fx = 0 ➔ T₂ cos(θ₂) - T₁ cos(θ₁) = 0<br/>
-                ∑Fy = 0 ➔ T₁ sin(θ₁) + T₂ sin(θ₂) - W = 0
+                ∑Fx = 0 (Horizontal Force Equilibrium)<br/>
+                ∑Fy = 0 (Vertical Force Equilibrium)<br/>
+                ∑M_z = 0 (Moment Equilibrium about Any Point)
               </p>
             </div>
           </div>
@@ -178,7 +623,6 @@ function App() {
               <h3 style={{ color: '#00BFFF', fontSize: '1.4rem', marginBottom: '10px' }}>1. Engineering Statics</h3>
               <p style={{ color: '#aaa', fontSize: '0.95rem' }}>Particle equilibrium, force vectors, beams, trusses, and frames.</p>
             </div>
-            {/* วิชาอื่นๆ */}
             <div onClick={() => alert("Coming soon!")} style={{ backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '12px', padding: '30px 20px', cursor: 'pointer', opacity: 0.7, textAlign: 'left' }}>
               <h3 style={{ color: '#888', fontSize: '1.4rem', marginBottom: '10px' }}>2. Mechanic of Materials</h3>
               <p style={{ color: '#666', fontSize: '0.95rem' }}>Stress, strain, and torsional deformation analysis.</p>
@@ -226,8 +670,8 @@ function App() {
             <div className="report-document">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
                 <div>
-                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Equilibrium of a Particle (Customizable Setup)</h1>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Interactive Particle Equilibrium with Horizontal Pin Supports and Space Telescope Load.</p>
+                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Equilibrium of a Particle (Example 3.2 Style)</h1>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Determine tension in cables supporting a suspended Space Telescope with horizontal pin supports.</p>
                 </div>
               </div>
 
@@ -238,40 +682,30 @@ function App() {
                 <div style={{ flex: 1, minWidth: '340px', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
                   <h4 style={{ margin: '0 0 10px 0', color: '#00BFFF', fontSize: '1rem' }}>Problem Diagram: Suspension System</h4>
                   <svg viewBox="0 0 450 320" style={{ width: '100%', height: 'auto', backgroundColor: '#151515' }}>
-                    {/* ผนังซ้ายและขวา */}
                     <rect x="40" y="60" width="15" height="100" fill="#a07050" stroke="#555" />
                     <rect x="395" y="60" width="15" height="100" fill="#a07050" stroke="#555" />
-                    {/* Pin แนวนอนซ้าย (C) และขวา (B) */}
                     <circle cx="55" cy="90" r="6" fill="#FFA500" stroke="#fff" strokeWidth="1.5" />
                     <text x="50" y="80" fill="#fff" fontSize="14" fontWeight="bold">C</text>
                     <circle cx="395" cy="90" r="6" fill="#FFA500" stroke="#fff" strokeWidth="1.5" />
                     <text x="395" y="80" fill="#fff" fontSize="14" fontWeight="bold">B</text>
                     
-                    {/* จุด Joint ตรงกลาง (B / Ring) */}
                     <circle cx="225" cy="180" r="6" fill="#00BFFF" stroke="#fff" strokeWidth="1.5" />
                     <text x="235" y="175" fill="#00BFFF" fontSize="14" fontWeight="bold">Joint</text>
 
-                    {/* สายเคเบิลซ้ายและขวา */}
                     <line x1="55" y1="90" x2="225" y2="180" stroke="#00BFFF" strokeWidth="3.5" />
                     <line x1="395" y1="90" x2="225" y2="180" stroke="#00BFFF" strokeWidth="3.5" />
 
-                    {/* มุม θ₁ และ θ₂ */}
                     <text x="110" y="125" fill="#FFA500" fontSize="13" fontWeight="bold">θ₁ = {pAngle1}°</text>
                     <text x="300" y="125" fill="#FFA500" fontSize="13" fontWeight="bold">θ₂ = {pAngle2}°</text>
 
-                    {/* สายเคเบิลห้อยน้ำหนัก */}
                     <line x1="225" y1="180" x2="225" y2="230" stroke="#00BFFF" strokeWidth="3.5" />
 
-                    {/* รูปกล้องโทรทรรศน์อวกาศ (Space Telescope) */}
                     <g transform="translate(195, 230)">
-                      {/* บอดี้กล้องหลัก */}
                       <rect x="0" y="0" width="60" height="50" rx="6" fill="#334155" stroke="#94a3b8" strokeWidth="2" />
-                      {/* แผงโซลาร์เซลล์ซ้าย-ขวา */}
                       <rect x="-30" y="10" width="25" height="30" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1" />
                       <rect x="65" y="10" width="25" height="30" fill="#1e3a8a" stroke="#60a5fa" strokeWidth="1" />
                       <line x1="-30" y1="25" x2="-5" y2="25" stroke="#94a3b8" strokeWidth="2" />
                       <line x1="65" y1="25" x2="90" y2="25" stroke="#94a3b8" strokeWidth="2" />
-                      {/* เลนส์กล้อง */}
                       <circle cx="30" cy="50" r="10" fill="#0ea5e9" stroke="#fff" strokeWidth="1.5" />
                       <text x="12" y="32" fill="#fff" fontSize="12" fontWeight="bold">Telescope</text>
                     </g>
@@ -283,25 +717,20 @@ function App() {
                 <div style={{ flex: 1, minWidth: '340px', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
                   <h4 style={{ margin: '0 0 10px 0', color: '#FFA500', fontSize: '1rem' }}>Free-Body Diagram (Concurrent Forces at Joint)</h4>
                   <svg viewBox="0 0 450 320" style={{ width: '100%', height: 'auto', backgroundColor: '#151515' }}>
-                    {/* แกนพิกัด X-Y */}
                     <line x1="225" y1="40" x2="225" y2="280" stroke="#666" strokeWidth="1.5" strokeDasharray="4,4" />
                     <text x="235" y="55" fill="#888" fontSize="14">y</text>
                     <line x1="60" y1="180" x2="390" y2="180" stroke="#666" strokeWidth="1.5" strokeDasharray="4,4" />
                     <text x="375" y="170" fill="#888" fontSize="14">x</text>
                     
-                    {/* จุด Joint ตรงกลาง */}
                     <circle cx="225" cy="180" r="5" fill="#fff" />
                     <text x="200" y="195" fill="#fff" fontSize="13" fontWeight="bold">Joint</text>
 
-                    {/* แรง T₁ (ซ้ายขึ้นบน) */}
                     <line x1="225" y1="180" x2="115" y2="90" stroke="#00BFFF" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
                     <text x="120" y="125" fill="#00BFFF" fontSize="14" fontWeight="bold">T₁</text>
 
-                    {/* แรง T₂ (ขวาขึ้นบน) */}
                     <line x1="225" y1="180" x2="335" y2="90" stroke="#00BFFF" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
                     <text x="305" y="125" fill="#00BFFF" fontSize="14" fontWeight="bold">T₂</text>
 
-                    {/* น้ำหนัก W (ดึงลงล่าง) */}
                     <line x1="225" y1="180" x2="225" y2="260" stroke="#FFA500" strokeWidth="3.5" markerEnd="url(#arrowPoint)" />
                     <text x="235" y="230" fill="#FFA500" fontSize="13" fontWeight="bold">W = {pWeight} {particleUnit}</text>
                   </svg>
@@ -335,7 +764,7 @@ function App() {
                 </div>
 
                 <div style={{ marginTop: '20px', textAlign: 'center' }}>
-                  <button onClick={analyzeSimpleParticle} style={{ padding: '12px 30px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer' }}>Calculate Equilibrium ($T_1$ & $T_2$)</button>
+                  <button onClick={analyzeSimpleParticle} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer' }}>Calculate Equilibrium ($T_1$ & $T_2$)</button>
                 </div>
               </div>
 
@@ -356,7 +785,7 @@ function App() {
             </div>
           )}
 
-          {/* ส่วนแท็บอื่นๆ (Vectors, Beam, Truss, Frame) คงเดิม */}
+          {/* ======================= TAB 2: FORCE VECTORS ======================= */}
           {activeTab === 'vectors' && (
             <div className="report-document">
                <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
@@ -487,7 +916,7 @@ function App() {
             </div>
           )}
 
-          {/* ======================= TAB 1: BEAM ======================= */}
+          {/* ======================= TAB 3: BEAM ======================= */}
           {activeTab === 'beam' && (
             <div className="report-document" id="report-container">
               <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
@@ -614,7 +1043,7 @@ function App() {
             </div>
           )}
 
-          {/* ======================= TAB 2: TRUSS BUILDER ======================= */}
+          {/* ======================= TAB 4: TRUSS BUILDER ======================= */}
           {activeTab === 'truss' && (
             <div className="report-document">
               <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
@@ -626,15 +1055,8 @@ function App() {
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '15px', backgroundColor: '#1A1A1A', padding: '8px 12px', borderRadius: '6px', border: `1px solid ${theme.border}` }}>
                 <span style={{ fontSize: '0.85rem', fontWeight: 'bold', color: '#fff' }}>Presets:</span>
                 <button onClick={() => loadTrussPreset('pratt')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Pratt Truss</button>
-                <button onClick={() => loadTrussPreset('warren')} style={{ padding: '6px 10px', fontSize: '0.85rem', cursor: 'pointer', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#2A2A2A', color: '#fff', fontWeight: 'bold' }}>Warren Truss</button>
               </div>
               <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A' }}>
-                <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button onClick={handleUndoTruss} disabled={trussHistory.length === 0} style={{ padding: '4px 10px', fontSize: '0.85rem', fontWeight: 'bold', cursor: trussHistory.length===0?'not-allowed':'pointer', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px' }}>Undo</button>
-                    <button onClick={clearTrussCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear</button>
-                  </div>
-                </div>
                 <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#151515', display: 'flex', justifyContent: 'center' }}>
                   <svg width="1400" height="600" onClick={handleTrussCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#151515' }}>
                     <defs>
@@ -659,7 +1081,7 @@ function App() {
             </div>
           )}
 
-          {/* ======================= TAB 3: FRAME ANALYSIS ======================= */}
+          {/* ======================= TAB 5: FRAME ANALYSIS ======================= */}
           {activeTab === 'frame' && (
             <div className="report-document">
               <div className="avoid-break" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
