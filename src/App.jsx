@@ -819,31 +819,42 @@ function App() {
         
         @media print {
           @page { size: A4 portrait; margin: 10mm; }
-          body, html { background: #ffffff !important; color: #000000 !important; padding: 0 !important; margin: 0 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body, html { background: #ffffff !important; color: #000000 !important; padding: 0 !important; margin: 0 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
           .app-bg { background-color: #ffffff !important; padding: 0 !important; min-height: auto !important; width: 100% !important; }
           
-          /* ซ่อนเมนู ปุ่มกด และเครื่องมือปรับแต่งทั้งหมด */
+          /* ซ่อนปุ่ม เมนู และส่วนควบคุมทั้งหมดตอนพิมพ์ */
           .no-print, button, select, input { display: none !important; }
           
           /* ขยายรายงานให้เต็มหน้ากระดาษและปรับพื้นหลังเป็นขาว */
           .report-document { max-width: 100% !important; width: 100% !important; margin: 0 !important; padding: 0 !important; background: #ffffff !important; color: #000000 !important; box-shadow: none !important; border: none !important; }
           
-          /* ซ่อนส่วนที่ไม่ต้องการให้แสดงในการพิมพ์ (ซ่อนส่วนการตั้งค่าโครงสร้างช่องที่ 1 และขั้นตอนคำนวณตัวเลขยาวๆ ถ้าต้องการให้เหลือเฉพาะโครงสร้างจริง FBD และสรุปผล) */
-          /* หมายเหตุ: โค้ดนี้จะซ่อนเฉพาะบล็อกอินพุตตั้งค่า แต่ยังคงบล็อกโครงสร้าง 1, FBD 2 และตารางสรุปผลไว้ครบถ้วน */
-
-          /* แปลงสีพื้นหลัง SVG และ Grid ให้ออกมาเป็นสีขาวสะอาดตา */
-          svg { background-color: #ffffff !important; }
-          svg text { fill: #000000 !important; }
-          svg rect[fill="#151515"], svg rect[fill="#1A1A1A"], svg rect[fill="url(#gridT)"], svg rect[fill="url(#gridT_FBD)"], svg rect[fill="url(#gridF)"], svg rect[fill="url(#gridF_FBD)"] { fill: #ffffff !important; }
-          svg path[stroke="#2a2a2a"], svg line[stroke="#2a2a2a"], svg path[stroke="#e0e0e0"] { stroke: #cccccc !important; }
-          
-          /* ปรับแต่งกล่องคอนเทนเนอร์และตารางให้เหมาะกับการปริ้นขาวดำ */
-          div[style*="backgroundColor: '#1A1A1A'"], div[style*="backgroundColor: '#151515'"] {
+          /* บังคับสีพื้นหลังของกล่องการ์ดทั้งหมดให้เป็นสีขาวสะอาดตา */
+          .report-document, div[style*="backgroundColor: '#1A1A1A'"], div[style*="backgroundColor: '#151515'"] {
             background-color: #ffffff !important;
             color: #000000 !important;
             border: 1px solid #dddddd !important;
           }
+
+          /* บังคับให้ข้อความ หัวข้อ และป้ายกำกับทั้งหมดเปลี่ยนเป็นสีดำ */
+          h1, h2, h3, h4, span, strong, label, p {
+            color: #000000 !important;
+          }
+
+          /* แปลงสีพื้นหลัง SVG และ Grid ให้ออกมาเป็นสีขาว */
+          svg { background-color: #ffffff !important; }
+          svg text { fill: #000000 !important; }
+          svg rect[fill="#151515"], svg rect[fill="#1A1A1A"], svg rect[fill="url(#gridT)"], svg rect[fill="url(#gridT_FBD)"], svg rect[fill="url(#gridF)"], svg rect[fill="url(#gridF_FBD)"] { fill: #ffffff !important; }
+          svg path[stroke="#2a2a2a"], svg line[stroke="#2a2a2a"], svg path[stroke="#e0e0e0"] { stroke: #cccccc !important; }
+
+          /* บังคับให้กราฟ Recharts (SFD, BMD) และข้อความตัวเลขในกราฟแสดงผลชัดเจน */
+          .recharts-cartesian-grid-horizontal line, .recharts-cartesian-grid-vertical line { stroke: #e0e0e0 !important; }
+          .recharts-text, .recharts-cartesian-axis-tick-value { fill: #000000 !important; }
+          .recharts-surface { background-color: #ffffff !important; }
           
+          /* บังคับสีพื้นที่ใต้กราฟ SFD และ BMD ให้พิมพ์ออกมาเป็นสีเทาอ่อนหรือทึบตามที่กำหนด */
+          .recharts-area-area { fill: #cccccc !important; fill-opacity: 0.5 !important; }
+
+          /* ปรับแต่งตารางสรุปผลให้เป็นธีมขาวดำทางการ */
           table { width: 100% !important; border-collapse: collapse !important; color: #000000 !important; }
           th, td { border: 1px solid #cccccc !important; color: #000000 !important; padding: 6px !important; }
           th { background-color: #f2f2f2 !important; }
@@ -1655,7 +1666,7 @@ function App() {
             </div>
 
             {fNodes.length > 0 && frameLocalData.analyzed && (
-              <div className="avoid-break print-clean-border" style={{ marginBottom: '20px', border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', backgroundColor: '#1A1A1A' }}>
+              <div className="avoid-break print-clean-border" style={{ border: `1px solid ${theme.border}`, padding: '15px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
                 <h3 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>2. Free Body Diagram (FBD) & Reactions</h3>
                 <div style={{ width: '100%', display: 'flex', justifyContent: 'center', backgroundColor: '#151515', overflow: 'auto' }}>
                   
