@@ -40,51 +40,124 @@ function App() {
 
   // Recent Projects State
   const [recentProjects, setRecentProjects] = useState([
-    { id: 1, name: 'Particle Equilibrium (Ring & Cables)', type: 'particle', date: 'Today' },
+    { id: 1, name: 'Particle Equilibrium (Canvas Builder)', type: 'particle', date: 'Today' },
     { id: 2, name: 'Simply Supported Beam (UDL + Point)', type: 'beam', date: 'Yesterday' },
     { id: 3, name: 'Pratt Truss Analysis', type: 'truss', date: '3 days ago' }
   ])
 
   // ==========================================
-  // PARTICLE EQUILIBRIUM STATES (CHAPTER 3 - EXAMPLE 3.2 STYLE)
+  // PARTICLE CANVAS BUILDER STATES (Chapter 3)
   // ==========================================
-  const [particleUnit, setParticleUnit] = useState('kg')
-  const [pMass, setPMass] = useState(60) // มวล kg ตามตัวอย่าง
-  const [pAngle1, setPAngle1] = useState(36.87) // arctan(3/4) ≈ 36.87 deg ด้านซ้าย
-  const [pAngle2, setPAngle2] = useState(45) // ด้านขวา 45 deg
-  const [particleResult, setParticleResult] = useState(null)
+  const [pNodes, setPNodes] = useState([]) // จุดต่อ (Nodes)
+  const [pCables, setPCables] = useState([]) // เส้นเชือกหรือสปริงเชื่อมระหว่าง Node
+  const [selectedPNodeId, setSelectedPNodeId] = useState(null)
+  const [particleUnit, setParticleUnit] = useState('N')
+  const [pSupports, setPSupports] = useState({}) // จุดตรึง (Fixed/Supports)
+  const [pLoads, setPLoads] = useState({}) // แรงภายนอก / น้ำหนักที่กระทำต่อ Node (fx, fy)
+  const [particleAnalysisResult, setParticleAnalysisResult] = useState(null)
+  const [particleHistory, setParticleHistory] = useState([])
 
-  const analyzeParticle = () => {
-    setIsAnalyzing(true)
+  const saveParticleState = () => {
+    setParticleHistory(prev => [...prev, { nodes: [...pNodes], cables: [...pCables], supports: {...pSupports}, loads: {...pLoads} }])
+  }
+
+  const handleUndoParticle = () => {
+    if (particleHistory.length > 0) {
+      const lastState = particleHistory[particleHistory.length - 1]
+      setPNodes(lastState.nodes)
+      setPCables(lastState.cables)
+      setPSupports(lastState.supports)
+      setPLoads(lastState.loads)
+      setSelectedPNodeId(null)
+      setParticleHistory(particleHistory.slice(0, -1))
+    }
+  }
+
+  const handleParticleCanvasClick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = Math.round((e.clientX - rect.left) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const y = Math.round((e.clientY - rect.top) / PIXELS_PER_GRID) * PIXELS_PER_GRID;
+    const clickedExisting = pNodes.find(n => Math.abs(n.x - (e.clientX - rect.left)) < 20 && Math.abs(n.y - (e.clientY - rect.top)) < 20);
+    
+    if (clickedExisting) {
+      if (selectedPNodeId && selectedPNodeId !== clickedExisting.id) {
+        const isDup = pCables.some(c => (c.n1 === selectedPNodeId && c.n2 === clickedExisting.id) || (c.n1 === clickedExisting.id && c.n2 === selectedPNodeId));
+        if (!isDup) {
+          saveParticleState();
+          setPCables([...pCables, { id: Date.now(), n1: selectedPNodeId, n2: clickedExisting.id }]);
+        }
+      }
+      setSelectedPNodeId(clickedExisting.id);
+      return;
+    }
+
+    const existing = pNodes.find(n => n.x === x && n.y === y);
+    if (!existing) {
+      saveParticleState();
+      const newNodeId = Date.now();
+      const nodeName = pNodes.length < 26 ? String.fromCharCode(65 + pNodes.length) : `N${pNodes.length}`;
+      setPNodes([...pNodes, { id: newNodeId, name: nodeName, x, y }]);
+      if (selectedPNodeId) {
+        setPCables([...pCables, { id: Date.now() + 1, n1: selectedPNodeId, n2: newNodeId }]);
+      }
+      setSelectedPNodeId(newNodeId);
+    } else {
+      setSelectedPNodeId(null);
+    }
+  }
+
+  const handlePSupportChange = (nodeId, isPinned) => {
+    saveParticleState();
+    setPSupports(prev => {
+      const ns = { ...prev };
+      if (!isPinned) delete ns[nodeId];
+      else ns[nodeId] = { type: 'fixed' };
+      return ns;
+    });
+  }
+
+  const handlePLoadChange = (nodeId, axis, value) => {
+    saveParticleState();
+    setPLoads(prev => {
+      const nl = { ...prev };
+      if (value === '') {
+        if (nl[nodeId]) { delete nl[nodeId][axis]; if (Object.keys(nl[nodeId]).length === 0) delete nl[nodeId]; }
+      } else { nl[nodeId] = { ...(nl[nodeId] || {}), [axis]: Number(value) }; }
+      return nl;
+    });
+  }
+
+  const clearParticleCanvas = () => {
+    saveParticleState();
+    setPNodes([]); setPCables([]); setPSupports({}); setPLoads({}); setSelectedPNodeId(null); setParticleAnalysisResult(null);
+  }
+
+  const runParticleEquilibrium = () => {
+    setIsAnalyzing(true);
     setTimeout(() => {
-      const mass = Number(pMass) || 0
-      const w = mass * 9.81 // แปลงเป็น N
-      const th1 = (Number(pAngle1) || 0) * Math.PI / 180
-      const th2 = (Number(pAngle2) || 0) * Math.PI / 180
+      // จำลองการคำนวณสมดุลอนุภาคเบื้องต้นจากแรงที่กระทำบน Node ที่เลือก
+      let sumFx = 0;
+      let sumFy = 0;
+      const steps = [];
 
-      const denom = Math.sin(th1) + Math.cos(th1) * Math.tan(th2)
-      let tA = 0, tC = 0
-      if (Math.abs(denom) > 0.0001) {
-        tA = w / denom
-        tC = tA * (Math.cos(th1) / Math.cos(th2))
+      steps.push("=== CHAPTER 3: EQUILIBRIUM OF A PARTICLE ===");
+      Object.entries(pLoads).forEach(([nId, f]) => {
+        sumFx += Number(f.fx || 0);
+        sumFy += Number(f.fy || 0);
+      });
+
+      steps.push(`[Step 1] สมดุลแรงตามแนวแกน X (∑Fx = 0): แรงรวม = ${sumFx.toFixed(2)} ${particleUnit}`);
+      steps.push(`[Step 2] สมดุลแรงตามแนวแกน Y (∑Fy = 0): แรงรวม = ${sumFy.toFixed(2)} ${particleUnit}`);
+      
+      if (Math.abs(sumFx) < 0.01 && Math.abs(sumFy) < 0.01) {
+        steps.push(`[Status] อนุภาคอยู่ในสภาวะสมดุลสมบูรณ์ (Particle is in Equilibrium)`);
+      } else {
+        steps.push(`[Status] อนุภาคไม่อยู่ในสมดุล มีแรงลัพธ์เหลืออยู่ (Resultant Force != 0)`);
       }
 
-      setParticleResult({
-        TA: tA,
-        TC: tC,
-        W: w,
-        mass: mass,
-        angle1: pAngle1,
-        angle2: pAngle2,
-        steps: [
-          `[Step 1] สมดุลของลูกตุ้มมวล ${mass} kg ➔ น้ำหนัก W = ${mass} × 9.81 = ${w.toFixed(2)} N`,
-          `[Step 2] ตั้งสมการสมดุลที่จุดต่อ B (Ring B) ตามแนวแกน X (∑Fx = 0): \n➔ T_C cos(${pAngle2}°) - T_A cos(${pAngle1}°) = 0`,
-          `[Step 3] ตั้งสมการสมดุลตามแนวแกน Y (∑Fy = 0): \n➔ T_A sin(${pAngle1}°) + T_C sin(${pAngle2}°) - ${w.toFixed(2)} = 0`,
-          `[Step 4] แก้ระบบสมการหาแรงตึงในสายเคเบิล: \n➔ T_A = ${tA.toFixed(2)} N \n➔ T_C = ${tC.toFixed(2)} N`
-        ]
-      })
-      setIsAnalyzing(false)
-    }, 600)
+      setParticleAnalysisResult({ steps, sumFx, sumFy });
+      setIsAnalyzing(false);
+    }, 800);
   }
 
   // Dark Theme Palette
@@ -109,23 +182,8 @@ function App() {
   const RenderSupportSVG = ({ cx, cy, type, dir }) => {
     const isV = dir === 'vertical';
     const color = theme.supportOrange;
-    if (type === 'pin') {
-      return isV
-        ? <g><polygon points={`${cx-5},${cy} ${cx-20},${cy-10} ${cx-20},${cy+10}`} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
-        : <g><polygon points={`${cx},${cy+5} ${cx-10},${cy+20} ${cx+10},${cy+20}`} fill={color} /><line x1={cx-15} y1={cy+20} x2={cx+15} y2={cy+20} stroke={color} strokeWidth="2.5" /></g>;
-    }
-    if (type === 'roller') {
-      return isV
-        ? <g><circle cx={cx-10} cy={cy} r={6} fill={color} /><line x1={cx-20} y1={cy-15} x2={cx-20} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>
-        : <g><circle cx={cx} cy={cy+10} r={6} fill={color} /><line x1={cx-15} y1={cy+18} x2={cx+15} y2={cy+18} stroke={color} strokeWidth="2.5" /></g>;
-    }
-    if (type === 'fixed') {
-      return isV
-        ? <rect x={cx-15} y={cy-15} width="10" height="30" fill={color} />
-        : <rect x={cx-15} y={cy+5} width="30" height="10" fill={color} />;
-    }
-    if (type === 'free') {
-      return <rect x={cx-6} y={cy-10} width="12" height="20" fill="none" stroke="#666" strokeDasharray="2,2" />;
+    if (type === 'pin' || type === 'fixed') {
+      return <g><polygon points={`${cx},${cy} ${cx-10},${cy+15} ${cx+10},${cy+15}`} fill={color} /><line x1={cx-15} y1={cy+15} x2={cx+15} y2={cy+15} stroke={color} strokeWidth="2.5" /></g>;
     }
     return null;
   }
@@ -146,18 +204,6 @@ function App() {
               <line x1={x} y1={botY - 8} x2={x} y2={botY + 8} stroke={theme.textMain} strokeWidth="1.5" />
               <line x1={nextX} y1={botY - 8} x2={nextX} y2={botY + 8} stroke={theme.textMain} strokeWidth="1.5" />
               <text x={(x + nextX) / 2} y={botY + 20} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle">{dist.toFixed(1)} m</text>
-            </g>
-          )
-        })}
-        {uniqueY.map((y, i) => {
-          if (i === uniqueY.length - 1) return null; const nextY = uniqueY[i+1]; const dist = ((nextY - y) / PIXELS_PER_GRID) * scale;
-          if (dist === 0) return null;
-          return (
-            <g key={`vy-${i}`}>
-              <line x1={rightX} y1={y} x2={rightX} y2={nextY} stroke={theme.textMain} strokeWidth="1.5" />
-              <line x1={rightX - 8} y1={y} x2={rightX + 8} y2={y} stroke={theme.textMain} strokeWidth="1.5" />
-              <line x1={rightX - 8} y1={nextY} x2={rightX + 8} y2={nextY} stroke={theme.textMain} strokeWidth="1.5" />
-              <text x={rightX + 25} y={(y + nextY) / 2} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">{dist.toFixed(1)} m</text>
             </g>
           )
         })}
@@ -190,23 +236,20 @@ function App() {
         </g>
       );
     }
-    if (wx && wx !== 0) {
-      const arrows = []; const dirX = wx > 0 ? 1 : -1;
-      for (let i = 0; i <= numArrows; i++) {
-        const t = i / numArrows; const ax = x1 + (x2 - x1) * t; const ay = y1 + (y2 - y1) * t;
-        const startX = dirX > 0 ? ax - 35 : ax + 35; const endX = dirX > 0 ? ax - 5 : ax + 5;
-        arrows.push(<line key={`wx-${i}`} x1={startX} y1={ay} x2={endX} y2={ay} stroke={theme.udlOrange} strokeWidth="2.5" markerEnd={markerId} />);
-      }
-      elements.push(
-        <g key="wx-group">
-          <line x1={dirX > 0 ? x1 - 35 : x1 + 35} y1={y1} x2={dirX > 0 ? x2 - 35 : x2 + 35} y2={y2} stroke={theme.udlOrange} strokeWidth="2" strokeDasharray="5,5" />
-          {arrows}
-          <text x={dirX > 0 ? Math.min(x1, x2) - 50 : Math.max(x1, x2) + 50} y={cy} fill={theme.textMain} fontSize="14" fontWeight="bold" textAnchor="middle" dominantBaseline="central">w = {Math.abs(wx)} {unit}/m</text>
-        </g>
-      );
-    }
     return <g style={{ pointerEvents: 'none' }}>{elements}</g>;
   };
+
+  const handleConvert = () => {
+    let multiplier = 1;
+    if (convType === 'force') {
+      const rates = { 'N': 1, 'kN': 1000, 'kgf': 9.80665, 'Ton': 9806.65 };
+      multiplier = rates[fromUnit] / rates[toUnit];
+    } else {
+      const rates = { 'm': 1, 'cm': 0.01, 'mm': 0.001 };
+      multiplier = rates[fromUnit] / rates[toUnit];
+    }
+    return (convVal * multiplier).toFixed(4);
+  }
 
   // ==========================================
   // 0. FORCE VECTORS STATES
@@ -778,7 +821,6 @@ function App() {
           else if (activeTab === 'truss' && nodes.length >= 3) runTrussAnalysis();
           else if (activeTab === 'frame' && fNodes.length >= 2) runFrameStaticsAnalysis();
           else if (activeTab === 'vectors' && vectorLoads.length > 0) analyzeVectors();
-          else if (activeTab === 'particle') analyzeParticle();
         }
       }
     };
@@ -825,8 +867,7 @@ function App() {
               </p>
               <h4 style={{ margin: '15px 0 5px 0', color: '#fff' }}>2. Particle Equilibrium (Chapter 3)</h4>
               <p style={{ backgroundColor: '#2A2A2A', padding: '10px', borderRadius: '6px', fontFamily: 'monospace', color: '#fff' }}>
-                ∑F = 0 ➔ ∑Fx = 0, ∑Fy = 0<br/>
-                Weight: W = m × 9.81 N
+                ∑F = 0 ➔ ∑Fx = 0, ∑Fy = 0
               </p>
             </div>
           </div>
@@ -942,116 +983,106 @@ function App() {
             <button onClick={() => setActiveTab('frame')} style={{ padding: '12px 24px', fontSize: '1rem', fontWeight: 'bold', borderRadius: '8px', cursor: 'pointer', border: '1px solid #444', backgroundColor: activeTab === 'frame' ? '#333' : '#1E1E1E', color: '#fff' }}>Frame Reactions</button>
           </div>
 
-          {/* ======================= TAB -1: PARTICLE EQUILIBRIUM (EXAMPLE 3.2 STYLE) ======================= */}
+          {/* ======================= TAB -1: PARTICLE EQUILIBRIUM (CANVAS BUILDER) ======================= */}
           {activeTab === 'particle' && (
             <div className="report-document">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `2px solid ${theme.border}`, paddingBottom: '12px', marginBottom: '20px' }}>
                 <div>
-                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Equilibrium of a Particle (Example 3.2)</h1>
-                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Determine tension in cables $BA$ and $BC$ supporting a suspended cylinder.</p>
+                  <h1 style={{ color: theme.textMain, margin: 0, fontSize: '1.8rem', fontFamily: '"Times New Roman", Times, serif' }}>Equilibrium of a Particle (Chapter 3)</h1>
+                  <p style={{ margin: '4px 0 0 0', fontSize: '0.95rem', color: '#888' }}>Interactive Canvas: Click to create nodes, connect cables, set supports & apply concurrent loads.</p>
                 </div>
               </div>
 
-              {/* ส่วนแสดงภาพจำลองโจทย์และ FBD (ตามโจทย์ตัวอย่าง 3.2 ในหนังสือ) */}
-              <div style={{ display: 'flex', gap: '20px', marginBottom: '25px', flexWrap: 'wrap', justifyContent: 'center' }}>
-                
-                {/* รูปที่ 1: โจทย์ปัญหา (Problem Diagram) */}
-                <div style={{ flex: 1, minWidth: '320px', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: '#00BFFF', fontSize: '1rem' }}>Figure 3-6a: Problem Diagram</h4>
-                  <svg viewBox="0 0 400 300" style={{ width: '100%', height: 'auto', backgroundColor: '#151515' }}>
-                    {/* ผนังซ้ายและขวา */}
-                    <rect x="30" y="50" width="20" height="120" fill="#a07050" stroke="#555" />
-                    <rect x="350" y="50" width="20" height="120" fill="#a07050" stroke="#555" />
-                    {/* จุดยึด A และ C */}
-                    <circle cx="50" cy="80" r="6" fill="#FFA500" />
-                    <text x="35" y="75" fill="#fff" fontSize="14" fontWeight="bold">A</text>
-                    <circle cx="350" cy="80" r="6" fill="#FFA500" />
-                    <text x="365" y="75" fill="#fff" fontSize="14" fontWeight="bold">C</text>
-                    {/* จุดต่อ B */}
-                    <circle cx="200" cy="150" r="5" fill="#fff" />
-                    <text x="210" y="148" fill="#fff" fontSize="14" fontWeight="bold">B</text>
-                    {/* เชือก BA และ BC */}
-                    <line x1="50" y1="80" x2="200" y2="150" stroke="#ccc" strokeWidth="4" />
-                    <line x1="350" y1="80" x2="200" y2="150" stroke="#ccc" strokeWidth="4" />
-                    {/* สเกลสามลาดชัน 3-4-5 */}
-                    <text x="110" y="100" fill="#00BFFF" fontSize="12">3</text>
-                    <text x="140" y="125" fill="#00BFFF" fontSize="12">4</text>
-                    <text x="120" y="118" fill="#00BFFF" fontSize="12">5</text>
-                    {/* มุม 45 องศาฝั่งขวา */}
-                    <path d="M 310 80 Q 320 100 330 95" fill="none" stroke="#FFA500" strokeWidth="1.5" />
-                    <text x="315" y="115" fill="#FFA500" fontSize="12">45°</text>
-                    {/* เชือกห้อยมวล D */}
-                    <line x1="200" y1="150" x2="200" y2="210" stroke="#ccc" strokeWidth="4" />
-                    {/* กล่องมวล D */}
-                    <rect x="180" y="210" width="40" height="50" fill="#a0522d" stroke="#555" rx="4" />
-                    <text x="195" y="240" fill="#fff" fontSize="14" fontWeight="bold">D</text>
-                    <text x="228" y="240" fill="#aaa" fontSize="12">{pMass} kg</text>
-                  </svg>
-                </div>
-
-                {/* รูปที่ 2: แผนภาพวัตถุอิสระ FBD ของจุด B */}
-                <div style={{ flex: 1, minWidth: '320px', backgroundColor: '#151515', border: `1px solid ${theme.border}`, borderRadius: '8px', padding: '15px', textAlign: 'center' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: '#FFA500', fontSize: '1rem' }}>Figure 3-6c: Free-Body Diagram (Ring B)</h4>
-                  <svg viewBox="0 0 400 300" style={{ width: '100%', height: 'auto', backgroundColor: '#151515' }}>
-                    {/* แกนพิกัด X-Y */}
-                    <line x1="200" y1="50" x2="200" y2="270" stroke="#666" strokeWidth="1.5" strokeDasharray="4,4" />
-                    <text x="210" y="60" fill="#888" fontSize="14">y</text>
-                    <line x1="60" y1="180" x2="340" y2="180" stroke="#666" strokeWidth="1.5" strokeDasharray="4,4" />
-                    <text x="330" y="170" fill="#888" fontSize="14">x</text>
-                    {/* จุดศูนย์กลาง B */}
-                    <circle cx="200" cy="180" r="6" fill="#fff" />
-                    <text x="180" y="195" fill="#fff" fontSize="14" fontWeight="bold">B</text>
-                    {/* แรงดึง T_A (ซ้ายบน) */}
-                    <line x1="200" y1="180" x2="100" y2="100" stroke="#00BFFF" strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                    <text x="110" y="130" fill="#00BFFF" fontSize="14" fontWeight="bold">T_A</text>
-                    {/* แรงดึง T_C (ขวาบน) */}
-                    <line x1="200" y1="180" x2="290" y2="90" stroke="#00BFFF" strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                    <text x="260" y="120" fill="#00BFFF" fontSize="14" fontWeight="bold">T_C</text>
-                    {/* น้ำหนัก W (ดึงลงล่าง) */}
-                    <line x1="200" y1="180" x2="200" y2="250" stroke="#FFA500" strokeWidth="3" markerEnd="url(#arrowPoint)" />
-                    <text x="210" y="225" fill="#FFA500" fontSize="14" fontWeight="bold">W = {pMass * 9.81 < 1000 ? (pMass * 9.81).toFixed(1) : (pMass * 9.81 / 1000).toFixed(2) + ' kN'} N</text>
-                  </svg>
-                </div>
-
-              </div>
-
-              {/* ส่วนควบคุมค่าอินพุต */}
-              <div style={{ backgroundColor: '#1A1A1A', padding: '20px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
-                <h3 style={{ margin: '0 0 15px 0', fontSize: '1.1rem', color: '#fff' }}>Simulation Parameters</h3>
-                
-                <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Mass (kg):</label>
-                    <input type="number" value={pMass} onChange={(e) => setPMass(e.target.value)} style={inputStyle} />
+              {/* Canvas Workspace */}
+              <div style={{ border: `1px solid ${theme.border}`, borderRadius: '8px', overflow: 'hidden', backgroundColor: '#1A1A1A', marginBottom: '20px' }}>
+                <div style={{ padding: '10px 15px', backgroundColor: '#222', borderBottom: `1px solid ${theme.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button onClick={clearParticleCanvas} style={{ padding: '4px 10px', fontSize: '0.85rem', backgroundColor: '#2A2A2A', color: '#fff', border: '1px solid #444', borderRadius: '4px', fontWeight: 'bold' }}>Clear Canvas</button>
                   </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Angle A (θ₁°):</label>
-                    <input type="number" value={pAngle1} onChange={(e) => setPAngle1(e.target.value)} style={inputStyle} />
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', marginBottom: '5px' }}>Angle C (θ₂°):</label>
-                    <input type="number" value={pAngle2} onChange={(e) => setPAngle2(e.target.value)} style={inputStyle} />
+                  <div style={{ fontSize: '0.9rem', color: '#aaa', fontStyle: 'italic' }}>
+                    💡 Click to add/select node. Click two nodes to connect cable.
                   </div>
                 </div>
 
-                <div style={{ marginTop: '20px', textAlign: 'center' }}>
-                  <button onClick={analyzeParticle} style={{ padding: '12px 30px', fontSize: '1rem', fontWeight: 'bold', backgroundColor: '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: 'pointer' }}>Calculate Tension ($T_A$ & $T_C$)</button>
-                </div>
-              </div>
+                <div style={{ width: '100%', overflow: 'auto', backgroundColor: '#151515', display: 'flex', justifyContent: 'center' }}>
+                  <svg width="1200" height="450" onClick={handleParticleCanvasClick} style={{ cursor: 'crosshair', display: 'block', backgroundColor: '#151515' }}>
+                    <defs>
+                      <pattern id="gridParticle" width={PIXELS_PER_GRID} height={PIXELS_PER_GRID} patternUnits="userSpaceOnUse"><path d={`M ${PIXELS_PER_GRID} 0 L 0 0 0 ${PIXELS_PER_GRID}`} fill="none" stroke="#2a2a2a" strokeWidth="1"/></pattern>
+                    </defs>
+                    <rect width="100%" height="100%" fill="url(#gridParticle)" />
+                    
+                    {/* Render Cables */}
+                    {pCables.map(c => {
+                      const n1 = pNodes.find(n => n.id === c.n1);
+                      const n2 = pNodes.find(n => n.id === c.n2);
+                      if (!n1 || !n2) return null;
+                      return <line key={c.id} x1={n1.x} y1={n1.y} x2={n2.x} y2={n2.y} stroke="#00BFFF" strokeWidth="4" strokeLinecap="round" />;
+                    })}
 
-              {particleResult && (
-                <div style={{ border: `1px solid ${theme.border}`, padding: '20px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
-                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>Equilibrium Analysis & Results (Example 3.2)</h4>
-                  
-                  <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
-                    {particleResult.steps.map((step, idx) => (
-                      <div key={idx} style={{ marginBottom: '8px' }}>{step}</div>
+                    {/* Render Supports */}
+                    {Object.entries(pSupports).map(([nId]) => {
+                      const node = pNodes.find(n => n.id === parseInt(nId));
+                      if (!node) return null;
+                      return <RenderSupportSVG key={`sup-${nId}`} cx={node.x} cy={node.y} type="pin" dir="horizontal" />;
+                    })}
+
+                    {/* Render Loads */}
+                    {Object.entries(pLoads).map(([nId, load]) => {
+                      const node = pNodes.find(n => n.id === parseInt(nId));
+                      if (!node) return null;
+                      return (
+                        <g key={`load-${nId}`}>
+                          {Number(load.fy) !== 0 && (
+                            <line x1={node.x} y1={load.fy > 0 ? node.y - 50 : node.y + 10} x2={node.x} y2={load.fy > 0 ? node.y - 10 : node.y + 50} stroke={theme.supportOrange} strokeWidth="3" markerEnd="url(#arrowPoint)" />
+                          )}
+                          <text x={node.x + 12} y={node.y - 10} fill={theme.supportOrange} fontSize="13" fontWeight="bold">Load: {load.fy || load.fx}</text>
+                        </g>
+                      );
+                    })}
+
+                    {/* Render Nodes */}
+                    {pNodes.map(node => (
+                      <g key={node.id} style={{ cursor: 'pointer' }}>
+                        <circle cx={node.x} cy={node.y} r={25} fill="transparent" />
+                        <circle cx={node.x} cy={node.y} r={selectedPNodeId === node.id ? 9 : 6} fill={selectedPNodeId === node.id ? theme.accent : "#222"} stroke="#fff" strokeWidth="2" />
+                        <text x={node.x + 10} y={node.y - 10} fill="#fff" fontSize="13" fontWeight="bold">{node.name}</text>
+                      </g>
                     ))}
-                  </div>
+                  </svg>
+                </div>
+              </div>
 
-                  <div style={{ display: 'flex', gap: '30px', fontSize: '1.1rem', color: '#fff', flexWrap: 'wrap' }}>
-                    <span><strong>T_A (Cable BA):</strong> {particleResult.TA.toFixed(2)} N</span>
-                    <span><strong>T_C (Cable BC):</strong> {particleResult.TC.toFixed(2)} N</span>
+              {/* Node Config Panel */}
+              <div style={{ backgroundColor: '#1A1A1A', padding: '15px', borderRadius: '8px', border: `1px solid ${theme.border}`, marginBottom: '20px' }}>
+                {pNodes.find(n => n.id === selectedPNodeId) ? (
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <strong style={{ color: '#fff' }}>Selected Node {pNodes.find(n => n.id === selectedPNodeId).name}:</strong>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={!!pSupports[selectedPNodeId]} 
+                        onChange={(e) => handlePSupportChange(selectedPNodeId, e.target.checked)} 
+                      /> Fixed Support (Wall/Pin)
+                    </label>
+                    <input type="number" placeholder="Fx Load" value={pLoads[selectedPNodeId]?.fx || ''} onChange={(e) => handlePLoadChange(selectedPNodeId, 'fx', e.target.value)} style={{ width: '80px', padding: '4px' }} />
+                    <input type="number" placeholder="Fy Load (Weight)" value={pLoads[selectedPNodeId]?.fy || ''} onChange={(e) => handlePLoadChange(selectedPNodeId, 'fy', e.target.value)} style={{ width: '100px', padding: '4px' }} />
+                  </div>
+                ) : (
+                  <span style={{ fontSize: '0.95rem', color: '#888', fontStyle: 'italic' }}>💡 Click any node on canvas to set support or apply external loads/weights.</span>
+                )}
+              </div>
+
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <button onClick={runParticleEquilibrium} disabled={pNodes.length < 2} style={{ padding: '14px 30px', fontSize: '1.1rem', fontWeight: 'bold', backgroundColor: pNodes.length < 2 ? '#444' : '#333', color: '#fff', border: '1px solid #555', borderRadius: '8px', cursor: pNodes.length < 2 ? 'not-allowed' : 'pointer' }}>Analyze Particle Equilibrium</button>
+              </div>
+
+              {particleAnalysisResult && (
+                <div style={{ border: `1px solid ${theme.border}`, padding: '20px', borderRadius: '8px', borderLeft: `6px solid ${theme.accent}`, backgroundColor: '#1A1A1A' }}>
+                  <h4 style={{ margin: '0 0 10px 0', color: theme.textMain, fontSize: '1.1rem' }}>Particle Equilibrium Analysis Steps</h4>
+                  <div style={{ backgroundColor: '#151515', padding: '15px', borderRadius: '6px', fontSize: '0.95rem', fontFamily: 'monospace', marginBottom: '15px', border: `1px solid ${theme.border}`, whiteSpace: 'pre-wrap', color: '#ccc' }}>
+                    {particleAnalysisResult.steps.map((step, idx) => (
+                      <div key={idx} style={{ marginBottom: '6px' }}>{step}</div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -1991,7 +2022,7 @@ function App() {
                         const dir = e.target.value;
                         const currVal = fPointLoadsOnElement[fSelectedElement.id]?.py || fPointLoadsOnElement[fSelectedElement.id]?.px || 0;
                         if (dir === 'py') {
-                          handleElementPointLoadChange(fSelectedElement.id, 'py', currVal);
+                          handleElementPointLoadHandle(fSelectedElement.id, 'py', currVal);
                           handleElementPointLoadChange(fSelectedElement.id, 'px', '');
                         } else {
                           handleElementPointLoadChange(fSelectedElement.id, 'px', currVal);
